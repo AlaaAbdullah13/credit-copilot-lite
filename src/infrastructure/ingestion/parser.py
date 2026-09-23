@@ -1,7 +1,6 @@
-from typing import List, Dict
 
 
-def parse_markdown(path: str) -> List[Dict[str, str]]:
+def parse_markdown(path: str) -> list[dict[str, str]]:
     # Minimal parser that reads markdown and returns sections
     sections = []
     try:
@@ -13,7 +12,7 @@ def parse_markdown(path: str) -> List[Dict[str, str]]:
     return sections
 
 
-def parse_csv(path: str) -> List[Dict[str, str]]:
+def parse_csv(path: str) -> list[dict[str, str]]:
     rows = []
     try:
         import csv

@@ -1,6 +1,7 @@
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-import os
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./credit_copilot.db")
 

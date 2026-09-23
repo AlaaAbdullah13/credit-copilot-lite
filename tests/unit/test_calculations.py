@@ -1,4 +1,8 @@
-from src.domain.calculations import calculate_installment, calculate_dbr, calculate_max_eligible_amount
+from src.domain.calculations import (
+    calculate_dbr,
+    calculate_installment,
+    calculate_max_eligible_amount,
+)
 
 
 def test_worked_example_approx():

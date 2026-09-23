@@ -1,4 +1,4 @@
-from decimal import Decimal, getcontext, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, getcontext
 
 getcontext().prec = 28
 
@@ -18,7 +18,7 @@ def calculate_installment(principal: float, annual_rate_percent: float, months: 
     P = Decimal(str(principal))
     if months <= 0:
         raise ValueError("months must be > 0")
-    r = Decimal(str(annual_rate_percent)) / Decimal("100") / Decimal("12")
+    r = Decimal(str(annual_rate_percent)) / Decimal(100) / Decimal(12)
     n = int(months)
     if r == 0:
         emi = P / Decimal(n)
@@ -41,7 +41,7 @@ def calculate_dbr(monthly_installment: float, monthly_income: float, other_insta
 def calculate_max_eligible_amount(monthly_installment: float, annual_rate_percent: float, months: int) -> Decimal:
     """Invert EMI formula to compute principal given EMI, rate and tenure."""
     emi = Decimal(str(monthly_installment))
-    r = Decimal(str(annual_rate_percent)) / Decimal("100") / Decimal("12")
+    r = Decimal(str(annual_rate_percent)) / Decimal(100) / Decimal(12)
     n = int(months)
     if r == 0:
         principal = emi * Decimal(n)

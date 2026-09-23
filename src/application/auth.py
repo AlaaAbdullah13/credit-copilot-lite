@@ -1,6 +1,7 @@
+import os
+
 from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
-import os
 
 # Simple header-based role check for boilerplate/demo purposes
 API_KEY_HEADER = APIKeyHeader(name="X-Role", auto_error=False)

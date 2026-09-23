@@ -1,14 +1,14 @@
-from pydantic import BaseModel
-from typing import Optional
 from datetime import date
+
+from pydantic import BaseModel
 
 
 class Applicant(BaseModel):
-    id: Optional[str] = None
-    name: Optional[str] = None
-    birth_date: Optional[date] = None
+    id: str | None = None
+    name: str | None = None
+    birth_date: date | None = None
     monthly_income: float
     other_monthly_installments: float = 0.0
-    nationality: Optional[str] = None
-    gender: Optional[str] = None
-    marital_status: Optional[str] = None
+    nationality: str | None = None
+    gender: str | None = None
+    marital_status: str | None = None

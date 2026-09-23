@@ -1,7 +1,6 @@
-from typing import List, Dict
 
 
-def chunk_by_clause(sections: List[Dict[str, str]]) -> List[Dict[str, str]]:
+def chunk_by_clause(sections: list[dict[str, str]]) -> list[dict[str, str]]:
     # Very small example chunker: emits same sections with synthetic clause ids
     chunks = []
     for i, s in enumerate(sections):

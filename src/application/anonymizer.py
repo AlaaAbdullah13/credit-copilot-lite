@@ -1,10 +1,8 @@
-from typing import Dict
-
 
 PROTECTED = {"gender", "religion", "marital_status", "nationality"}
 
 
-def anonymize_application(payload: Dict) -> Dict:
+def anonymize_application(payload: dict) -> dict:
     """Remove protected attributes from a dict representing an application."""
     out = dict(payload)
     for p in PROTECTED:

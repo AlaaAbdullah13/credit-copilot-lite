@@ -1,9 +1,13 @@
-from fastapi import FastAPI, Depends, HTTPException
-from typing import Dict
-import os
 
-from src.application.auth import require_role, enforce_authority_limit
+
+from fastapi import Depends, FastAPI, HTTPException
+
+from src.application.auth import enforce_authority_limit, require_role
 from src.application.pipeline import run_assessment
+from src.domain.exceptions import AuthorityLimitExceeded
+
+# Create module-level dependency call to satisfy lint (avoid calling require_role in defaults)
+credit_officer_dep = require_role("credit_officer")
 
 app = FastAPI(title="Credit Copilot Lite")
 
@@ -20,16 +24,17 @@ def ingest():
 
 
 @app.post("/assess")
-def assess(payload: Dict):
-    try:
-        memo = run_assessment(payload.get("application", {}), payload.get("policy", {}))
-        return memo.dict()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+def assess(payload: dict):
+    # Only handle known domain errors here; let unexpected errors propagate
+    memo = run_assessment(payload.get("application", {}), payload.get("policy", {}))
+    return memo.dict()
 
 
-@app.post("/approve")
-def approve(payload: Dict, _=Depends(require_role("credit_officer"))):
+@app.post("/approve", dependencies=[Depends(credit_officer_dep)])
+def approve(payload: dict):
     amount = payload.get("amount", 0)
-    enforce_authority_limit(amount)
+    try:
+        enforce_authority_limit(amount)
+    except AuthorityLimitExceeded as e:
+        raise HTTPException(status_code=403, detail=str(e))
     return {"status": "approved", "amount": amount}

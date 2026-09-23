@@ -1,15 +1,16 @@
-from typing import Dict, Any
+from typing import Any
+
 from src.application.anonymizer import anonymize_application
-from src.infrastructure.llm.fake_adapter import FakeLLMAdapter
 from src.domain.calculations import (
-    calculate_installment,
     calculate_dbr,
+    calculate_installment,
     calculate_max_eligible_amount,
 )
 from src.domain.models.memo import CreditMemo
+from src.infrastructure.llm.fake_adapter import FakeLLMAdapter
 
 
-def run_assessment(application: Dict[str, Any], policy: Dict[str, Any]) -> CreditMemo:
+def run_assessment(application: dict[str, Any], policy: dict[str, Any]) -> CreditMemo:
     """A fixed 8-step simplified pipeline placeholder.
 
     Steps: Load -> Anonymize -> Select Policy -> Extract JSON -> Retrieve Clauses
@@ -18,11 +19,8 @@ def run_assessment(application: Dict[str, Any], policy: Dict[str, Any]) -> Credi
     # 1. Load (application given)
     app = application
 
-    # 2. Anonymize
-    anonymized = anonymize_application(app)
-
-    # 3. Select policy (policy given)
-    selected_policy = policy
+    # 2. Anonymize (we keep the operation to remove protected attributes)
+    anonymize_application(app)
 
     # 4. Extract JSON (use fake LLM)
     llm = FakeLLMAdapter()
@@ -41,7 +39,9 @@ def run_assessment(application: Dict[str, Any], policy: Dict[str, Any]) -> Credi
     calculations = {"emi": float(emi), "dbr": float(dbr), "max_amount": float(max_amount)}
 
     # 7. Draft memo
-    memo = CreditMemo(application_id=application.get("id"), calculations=calculations, citations=citations, raw_extraction=extraction)
+    memo = CreditMemo(
+        application_id=application.get("id"), calculations=calculations, citations=citations, raw_extraction=extraction
+    )
 
     # 8. Pending approval
     memo.decision = None

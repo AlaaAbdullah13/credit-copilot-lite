@@ -1,5 +1,5 @@
-from src.infrastructure.ingestion.parser import parse_markdown
 from src.infrastructure.ingestion.chunker import chunk_by_clause
+from src.infrastructure.ingestion.parser import parse_markdown
 
 
 def test_parse_and_chunk_sample():
