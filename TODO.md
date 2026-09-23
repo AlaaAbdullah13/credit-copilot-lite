@@ -1,68 +1,137 @@
 # Project TODO Checklist
 
 ## Phase 0: Project Setup & Repository Infrastructure
-- [ ] Initialize Git repository with correct `.gitignore` and `LICENSE`.
+- [ ] Initialize Git repository with correct `.gitignore` (from first commit) and `LICENSE`.
 - [ ] Setup Python environment with Poetry / `uv` and pin dependencies (`poetry.lock` / `uv.lock`).
 - [ ] Configure Ruff for linting and code formatting.
-- [ ] Create `.env.example` file.
+- [ ] Create `.env.example` with all required environment variables documented.
 - [ ] Setup base project folder structure (`src/domain`, `src/infrastructure`, `src/application`, `tests`, `docs`).
-- [ ] Setup GitHub Actions workflow (`.github/workflows/ci.yml`) running lint and pytest on PRs.
+- [ ] Setup GitHub Actions workflow (`.github/workflows/ci.yml`) running lint and pytest on every PR; must be green on main at submission.
+- [ ] Add Pull Request template (`.github/pull_request_template.md`) with: what / why / how tested sections.
+- [ ] Plan and maintain ≥15 meaningful commits across ≥4 calendar days using Conventional Commits style (no "fix2" or "final-final").
+- [ ] Open ≥3 Pull Requests into main, each with a short description of what, why, and how tested.
 
 ## Phase 1: Pure Domain Logic & Calculation Engine (FR-4)
-- [ ] Implement `installment_calculator` using reducing-balance formula.
-- [ ] Implement `debt_burden_ratio` (DBR) calculation function.
-- [ ] Implement `maximum_eligible_amount` function (rounded down to 1000 EGP).
-- [ ] Implement `age_at_maturity` rule check.
-- [ ] Implement bureau score and employment duration evaluation functions.
-- [ ] Create custom domain exceptions (`PolicyEditionNotFound`, `InvalidApplication`, `UnverifiedExtraction`, `AuthorityLimitExceeded`).
-- [ ] Write Unit Tests for APP-001 scenario (Verify: EMI = 8,630.39, DBR = 42.10%, Max Amount = 382,000 EGP).
-- [ ] Write Unit Tests for edge cases (DBR at limit, 0 obligations, max age limit, min/max loan amounts).
+- [ ] Implement `installment_calculator` using reducing-balance formula (P × r ÷ (1 − (1 + r)^−n)), rounded to 2 decimals half-up.
+- [ ] Implement `debt_burden_ratio` (DBR) calculation function, displayed to 2 decimals.
+- [ ] Implement `maximum_eligible_amount` function (largest P keeping DBR ≤ max, rounded **down** to nearest 1,000 EGP).
+- [ ] Implement `age_at_maturity` rule check (age at application + tenor years ≤ policy maximum).
+- [ ] Implement bureau score evaluation (below threshold → "Refer to human", not automatic decline).
+- [ ] Implement employment duration evaluation function.
+- [ ] Implement amount & tenor limits check against product sheet values.
+- [ ] Create all custom domain exceptions: `PolicyEditionNotFound`, `InvalidApplication`, `UnverifiedExtraction`, `InvalidLLMOutput`, `AuthorityLimitExceeded`.
+- [ ] Write Unit Tests for APP-001 scenario (must verify exactly: EMI = 8,630.39, DBR = 42.10%, Max Amount = 382,000 EGP).
+- [ ] Write Unit Tests for edge cases: DBR exactly at the limit, zero existing obligations, age exactly at the limit, loan amount at product minimum and maximum.
+- [ ] Confirm calculation engine has **zero imports** from any LLM or vector-store library.
 
 ## Phase 2: Document Ingestion & RAG Infrastructure (FR-1, FR-2)
-- [ ] Setup Trusted Vector Store (ChromaDB / Qdrant) and Untrusted Application Store.
-- [ ] Build Document Loader for PDF, Markdown, CSV documents.
-- [ ] Implement Clause/Section-based text chunker with Metadata (source_file, page, clause_id, policy_edition, effective_dates).
-- [ ] Build ingestion pipeline ensuring idempotent loading (no duplicate chunks on re-run).
-- [ ] Implement semantic vector search with policy edition metadata filtering.
-- [ ] Add relevance score threshold for refusal ("The documents do not contain enough information.").
-- [ ] Write integration tests for ingestion and retrieval with citations.
+- [ ] Setup **two separate stores**: Trusted Vector Store (ChromaDB / Qdrant) for policy docs, and Untrusted Application Store for applicant packs — never mix them.
+- [ ] Build Document Loader supporting PDF, Markdown, and CSV formats.
+- [ ] Implement Clause/Section-based text chunker (split by clause/section ID, not fixed character count) with metadata: `source_file`, `page`, `clause_id`, `policy_edition`, `effective_dates`.
+- [ ] Build ingestion pipeline that is idempotent (running twice must not create duplicate chunks).
+- [ ] Ingestion pipeline must report which documents succeeded and which failed.
+- [ ] Implement semantic (vector) search with policy edition metadata filtering.
+- [ ] Add relevance score threshold: below threshold → return `{"answer": "The documents do not contain enough information.", "citations": [], "reason": "no_chunk_above_threshold"}`.
+- [ ] Every Q&A answer must include a citations list referencing the source chunks.
+- [ ] Write integration test for ingestion + retrieval with citation verification.
 
 ## Phase 3: Application Pipeline & LLM Integration (FR-3)
-- [ ] Create abstract `LLMProvider` interface (with `complete` and `embed` methods).
-- [ ] Implement `FakeLLMAdapter` for offline pipeline testing without internet or API keys.
-- [ ] Implement `GeminiLLMAdapter` / `GroqAdapter` using free API tier.
-- [ ] Step 1: Implement application load & schema validation.
-- [ ] Step 2: Implement code-based protected attribute stripping (`gender`, `marital_status`, `religion`, `nationality`) and log event.
-- [ ] Step 3: Implement policy edition selector based on application date.
-- [ ] Step 4: Implement LLM Data Extraction with Pydantic JSON schema output.
-- [ ] Step 4 Verification: Write text verifier to ensure extracted values appear in cited text (raises `UnverifiedExtraction` on mismatch).
-- [ ] Step 5 & 6: Connect retrieval and rule evaluation engine.
-- [ ] Step 7: Draft Credit Memo using LLM with strictly code-injected calculation figures.
-- [ ] Write pipeline integration test with Fake LLM.
-- [ ] Write Fairness Test (`test_fairness`) proving protected attribute changes do not alter assessment outcome.
+- [ ] Create abstract `LLMProvider` interface with `complete` and `embed` methods — domain/pipeline code must only call this interface, never a concrete provider directly.
+- [ ] Store all LLM prompts in external files (e.g. `prompts/extract.txt`, `prompts/memo.txt`), never hardcoded strings.
+- [ ] Implement `FakeLLMAdapter` returning deterministic responses for offline pipeline testing (no internet or API keys required).
+- [ ] Implement `GeminiLLMAdapter` / `GroqAdapter` (or equivalent) using a free API tier.
+- [ ] Document in `DESIGN.md` exactly which file to add and which config to change to switch LLM provider.
+- [ ] **Step 1:** Implement application load & schema validation (amount, tenor, date of birth, application date).
+- [ ] **Step 2:** Implement code-based protected attribute stripping (`gender`, `marital_status`, `religion`, `nationality`) — code only, not LLM — and log that stripping occurred.
+- [ ] **Step 3:** Implement policy edition selector based on application date — code only, not LLM.
+- [ ] **Step 4:** Implement LLM Data Extraction returning validated Pydantic JSON with `value` + `source_document` + `source_section` + `quoted_text` for each field.
+- [ ] **Step 4 Verification:** Write text verifier that normalises and checks each extracted value appears literally in its cited `quoted_text`; raises `UnverifiedExtraction` on mismatch → result becomes "Refer to human".
+- [ ] **Step 5:** Retrieve relevant policy clauses filtered to the selected edition and current circulars only.
+- [ ] **Step 6:** Run rule evaluation engine (all rules from Section 2.3); output pass / fail / refer per rule with policy citation.
+- [ ] **Step 7:** Draft credit memo using LLM — every numeric value (installment, DBR, max amount) is inserted by code, not typed by the LLM.
+- [ ] **Step 8:** Save recommendation as `pending` — no offer is issued until a credit officer acts.
+- [ ] If any step fails or evidence is missing → result is "Refer to human", never a guess.
+- [ ] **Pipeline test (Fake LLM):** approvable application — must pass.
+- [ ] **Pipeline test (Fake LLM):** over-age application — must fail with correct rule citation.
+- [ ] **Pipeline test (Fake LLM):** invalid LLM JSON output → raises `InvalidLLMOutput` → "Refer to human".
+- [ ] **Pipeline test:** LLM JSON not matching Pydantic schema is explicitly rejected (separate test).
+- [ ] **Fairness Test (`test_fairness`):** submit same application twice changing only protected attributes; assert identical result, calculations, and memo wording.
+- [ ] All pipeline tests must run without internet or API keys.
 
 ## Phase 4: Database, Authorization & Approval Engine (FR-5, FR-8, FR-9)
-- [ ] Setup Relational Database schema (SQLite/PostgreSQL) and configure Alembic migrations.
-- [ ] Create Models: `Application`, `AssessmentRun`, `ApprovalRecord`, `User`.
-- [ ] Implement Request Logging (Request ID, steps executed, chunks used, policy edition, removed attributes, token usage).
-- [ ] Implement RBAC middleware/dependencies (`Loan Officer` vs `Credit Officer`).
-- [ ] Implement Approval Flow (Pending -> Approved/Rejected -> Issued).
-- [ ] Implement server-side authority limit check (e.g. reject approval if amount > 250,000 EGP for credit officer).
+- [ ] Setup relational database (SQLite or PostgreSQL) with Alembic migrations — schema must never be created by ad-hoc startup code.
+- [ ] Create models: `Application`, `AssessmentRun`, `ApprovalRecord`, `User`.
+- [ ] Implement per-request logging: request ID, steps executed, chunk IDs retrieved, policy edition used, fields removed in Step 2, tokens consumed.
+- [ ] Implement RBAC: `Loan Officer` (ingest, ask, submit applications) and `Credit Officer` (also approve/reject) — enforced server-side, not by hiding UI buttons.
+- [ ] Implement Approval Flow: `Pending → Approved / Rejected → Issued`. Store approver identity, timestamp, and comment.
+- [ ] Implement server-side authority limit check: reject Credit Officer approval if recommended amount exceeds their limit (e.g. 250,000 EGP); return clear error `AuthorityLimitExceeded`.
 
 ## Phase 5: API, Interfaces & Evaluation Suite (FR-6, FR-7)
-- [ ] Build FastAPI REST endpoints (`/ingest`, `/query`, `/assess`, `/approve`).
+- [ ] Build FastAPI REST endpoints: `/ingest`, `/query`, `/assess`, `/approve`, `/reject`.
 - [ ] Auto-generate OpenAPI / Swagger UI documentation.
-- [ ] Build CLI script (`main.py`) for quick terminal demonstration.
-- [ ] Create 15-question evaluation test set in code/JSON.
-- [ ] Build evaluation runner script calculating retrieval hit-rate, refusal correctness, and exactness.
-- [ ] Execute evaluation and record real findings in `docs/EVALUATION.md`.
+- [ ] Build CLI script for quick terminal demonstration of the full flow.
+- [ ] Create evaluation test set of exactly 15 questions with expected answers, covering:
+  - [ ] ≥3 out-of-corpus questions (system must refuse).
+  - [ ] ≥2 questions where the correct answer differs between policy editions.
+  - [ ] ≥3 calculation cases with exact expected numbers.
+  - [ ] ≥2 prompt injection attempts (≥1 hidden inside an applicant document).
+- [ ] Build evaluation runner script printing: retrieval hit-rate (state the k used), refusal correctness, calculation exactness.
+- [ ] Execute evaluation with real results; record findings including failures in `docs/EVALUATION.md`.
 
-## Phase 6: Documentation, Security & Final Deliverables
-- [ ] Perform security review: Mask Phone & National ID numbers in LLM prompts.
-- [ ] Run secret scanner (e.g. `gitleaks`) to ensure no API keys or secrets are committed.
-- [ ] Write `docs/DESIGN.md` (Architecture, Chunking rationale, Policy selection, LLM abstraction, Fairness proof).
-- [ ] Write `docs/EVALUATION.md` (15 test cases, metrics, failure analysis).
-- [ ] Write `docs/AI-USAGE-LOG.md` (AI prompts, corrections, incorrect AI answers).
-- [ ] Write comprehensive `README.md` (Quickstart, Env vars, Demo credentials, 5-Minute Demo Path).
-- [ ] Create `docker-compose.yml` and test `docker compose up` fresh setup.
-- [ ] Record 3-5 minute unlisted Demo Video.
+## Phase 6: Security
+- [ ] Mask national ID numbers and phone numbers before sending any text to the LLM provider.
+- [ ] Validate all file uploads: check file type and enforce size limits.
+- [ ] Use parameterised database queries everywhere — no string-concatenated SQL.
+- [ ] Never render LLM output as raw HTML.
+- [ ] Applicant documents are untrusted: pass them to the LLM clearly separated from system instructions; demonstrate prompt injection attempt failing in evaluation (S3).
+- [ ] Run secret scanner (e.g. `gitleaks`) before submission; no API keys or passwords in repository including Git history.
+- [ ] Note in `README.md` exactly what data is sent to the LLM provider.
+
+## Phase 7: Documentation & Final Deliverables
+- [ ] **`docs/DESIGN.md`** (2–4 pages) must cover:
+  - [ ] Simple architecture diagram.
+  - [ ] Chunking strategy choice and rationale.
+  - [ ] How the policy edition is selected (with code reference).
+  - [ ] How the LLM is kept away from arithmetic.
+  - [ ] How protected attributes are removed and proven irrelevant (fairness test reference).
+  - [ ] Exactly which file to add and which settings to change to switch LLM provider.
+  - [ ] What you would add with more time, and what you left out on purpose (honest cuts).
+- [ ] **`docs/EVALUATION.md`**: 15 test cases, real results (including failures), and what failures taught you.
+- [ ] **`docs/AI-USAGE-LOG.md`**: what you asked AI tools to do, what you wrote yourself, and ≥2 cases where the AI was wrong and how you found out.
+- [ ] **`README.md`** must include:
+  - [ ] Quick start instructions.
+  - [ ] Every environment variable explained.
+  - [ ] How to get a free API key for the chosen provider.
+  - [ ] Demo accounts for both roles (Loan Officer + Credit Officer).
+  - [ ] How to run tests and the evaluation script.
+  - [ ] A numbered "5-Minute Demo Path".
+  - [ ] Exactly what data is sent to the LLM provider.
+- [ ] **`docker-compose.yml`**: `docker compose up` starts everything; one command loads the demo documents.
+- [ ] Clone the repo fresh and verify it runs end-to-end from the README before submission.
+- [ ] **Demo video (3–5 min, unlisted)** must show in order:
+  - [ ] Document ingestion.
+  - [ ] A cited answer to a policy question.
+  - [ ] A correct refusal for an out-of-corpus question.
+  - [ ] An answer that changes between policy editions.
+  - [ ] An application assessed with the full calculation breakdown.
+  - [ ] A prompt injection attempt failing (and logged).
+  - [ ] Credit Officer approval flow — including a rejected attempt above the authority limit.
+
+## Never Cut (from Section 9)
+- [ ] Calculation engine and its unit tests.
+- [ ] Fairness test.
+- [ ] Citations and refusals.
+- [ ] The approval step.
+- [ ] The evaluation (15 questions + script + EVALUATION.md).
+- [ ] README.
+
+## Stretch Goals (only after core is complete)
+- [ ] Hybrid search: BM25 + vector with reciprocal rank fusion — report before/after evaluation numbers.
+- [ ] Re-ranking or query rewriting — report before/after evaluation numbers.
+- [ ] Extend document pack with your own synthetic documents and new test cases.
+- [ ] Replace fixed pipeline with 2–3 LLM agents using tool calling (typed inputs/outputs).
+- [ ] Streaming answers (SSE) with visible progress of assessment steps.
+- [ ] Local-model fallback via Ollama when API fails or free tier runs out.
+- [ ] Second product (e.g. auto loans with a down-payment rule).
+- [ ] Generate approved offer letter with repayment schedule as formatted PDF or DOCX.
+- [ ] Token and cost tracking per user.
