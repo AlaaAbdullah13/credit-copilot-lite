@@ -1,31 +1,33 @@
 # Project TODO Checklist
 
 ## Phase 0: Project Setup & Repository Infrastructure
-- [ ] Initialize Git repository with correct `.gitignore` (from first commit) and `LICENSE`.
-- [ ] Setup Python environment with Poetry / `uv` and pin dependencies (`poetry.lock` / `uv.lock`).
-- [ ] Configure Ruff for linting and code formatting.
-- [ ] Create `.env.example` with all required environment variables documented.
-- [ ] Setup base project folder structure (`src/domain`, `src/infrastructure`, `src/application`, `tests`, `docs`).
-- [ ] Setup GitHub Actions workflow (`.github/workflows/ci.yml`) running lint and pytest on every PR; must be green on main at submission.
-- [ ] Add Pull Request template (`.github/pull_request_template.md`) with: what / why / how tested sections.
+- [x] Initialize Git repository with correct `.gitignore` (from first commit) and `LICENSE`.
+- [x] Setup Python environment with Poetry / `uv` and pin dependencies (`poetry.lock` / `uv.lock`).
+- [x] Configure Ruff for linting and code formatting.
+- [x] Create `.env.example` with all required environment variables documented.
+- [x] Setup base project folder structure (`src/domain`, `src/infrastructure`, `src/application`, `tests`, `docs`).
+- [x] Setup GitHub Actions workflow (`.github/workflows/ci.yml`) running lint and pytest on every PR; must be green on main at submission.
+- [x] Add Pull Request template (`.github/pull_request_template.md`) with: what / why / how tested sections.
 - [ ] Plan and maintain ≥15 meaningful commits across ≥4 calendar days using Conventional Commits style (no "fix2" or "final-final").
 - [ ] Open ≥3 Pull Requests into main, each with a short description of what, why, and how tested.
 
 ## Phase 1: Pure Domain Logic & Calculation Engine (FR-4)
-- [ ] Implement `installment_calculator` using reducing-balance formula (P × r ÷ (1 − (1 + r)^−n)), rounded to 2 decimals half-up.
-- [ ] Implement `debt_burden_ratio` (DBR) calculation function, displayed to 2 decimals.
-- [ ] Implement `maximum_eligible_amount` function (largest P keeping DBR ≤ max, rounded **down** to nearest 1,000 EGP).
-- [ ] Implement `age_at_maturity` rule check (age at application + tenor years ≤ policy maximum).
-- [ ] Implement bureau score evaluation (below threshold → "Refer to human", not automatic decline).
-- [ ] Implement employment duration evaluation function.
-- [ ] Implement amount & tenor limits check against product sheet values.
-- [ ] Create all custom domain exceptions: `PolicyEditionNotFound`, `InvalidApplication`, `UnverifiedExtraction`, `InvalidLLMOutput`, `AuthorityLimitExceeded`.
-- [ ] Write Unit Tests for APP-001 scenario (must verify exactly: EMI = 8,630.39, DBR = 42.10%, Max Amount = 382,000 EGP).
-- [ ] Write Unit Tests for edge cases: DBR exactly at the limit, zero existing obligations, age exactly at the limit, loan amount at product minimum and maximum.
-- [ ] Confirm calculation engine has **zero imports** from any LLM or vector-store library.
+- [x] Implement `installment_calculator` using reducing-balance formula (P × r ÷ (1 − (1 + r)^−n)), rounded to 2 decimals half-up.
+- [x] Implement `debt_burden_ratio` (DBR) calculation function, displayed to 2 decimals.
+- [x] Implement `maximum_eligible_amount` function (largest P keeping DBR ≤ max, rounded down to nearest 1,000 EGP using floor division).
+- [x] Implement `age_at_maturity` rule check (age at application + tenor years ≤ policy maximum).
+- [x] Implement bureau score evaluation (below threshold → refer to human, not automatic decline).
+- [x] Implement employment duration evaluation function.
+- [x] Implement amount & tenor limits check against product sheet values.
+- [x] Create all custom domain exceptions: `PolicyEditionNotFound`, `InvalidApplication`, `UnverifiedExtraction`, `InvalidLLMOutput`, `AuthorityLimitExceeded`.
+- [x] Write unit tests for the deterministic formula-based APP-001 style scenario using standard product assumptions.
+- [x] Write unit tests for edge cases: DBR exactly at the limit, zero existing obligations, age exactly at the limit, loan amount at product minimum and maximum.
+- [x] Confirm calculation engine has zero imports from any LLM or vector-store library.
+- [x] Phase 1 validation: `pytest tests/unit/test_calculations.py -q` passed.
+- [x] Phase 1 validation: Ruff check passed for the calculation module and tests.
 
 ## Phase 2: Document Ingestion & RAG Infrastructure (FR-1, FR-2)
-- [ ] Setup **two separate stores**: Trusted Vector Store (ChromaDB / Qdrant) for policy docs, and Untrusted Application Store for applicant packs — never mix them.
+- [ ] Setup two separate stores: Trusted Vector Store (ChromaDB / Qdrant) for policy docs, and Untrusted Application Store for applicant packs — never mix them.
 - [ ] Build Document Loader supporting PDF, Markdown, and CSV formats.
 - [ ] Implement Clause/Section-based text chunker (split by clause/section ID, not fixed character count) with metadata: `source_file`, `page`, `clause_id`, `policy_edition`, `effective_dates`.
 - [ ] Build ingestion pipeline that is idempotent (running twice must not create duplicate chunks).
@@ -41,21 +43,21 @@
 - [ ] Implement `FakeLLMAdapter` returning deterministic responses for offline pipeline testing (no internet or API keys required).
 - [ ] Implement `GeminiLLMAdapter` / `GroqAdapter` (or equivalent) using a free API tier.
 - [ ] Document in `DESIGN.md` exactly which file to add and which config to change to switch LLM provider.
-- [ ] **Step 1:** Implement application load & schema validation (amount, tenor, date of birth, application date).
-- [ ] **Step 2:** Implement code-based protected attribute stripping (`gender`, `marital_status`, `religion`, `nationality`) — code only, not LLM — and log that stripping occurred.
-- [ ] **Step 3:** Implement policy edition selector based on application date — code only, not LLM.
-- [ ] **Step 4:** Implement LLM Data Extraction returning validated Pydantic JSON with `value` + `source_document` + `source_section` + `quoted_text` for each field.
-- [ ] **Step 4 Verification:** Write text verifier that normalises and checks each extracted value appears literally in its cited `quoted_text`; raises `UnverifiedExtraction` on mismatch → result becomes "Refer to human".
-- [ ] **Step 5:** Retrieve relevant policy clauses filtered to the selected edition and current circulars only.
-- [ ] **Step 6:** Run rule evaluation engine (all rules from Section 2.3); output pass / fail / refer per rule with policy citation.
-- [ ] **Step 7:** Draft credit memo using LLM — every numeric value (installment, DBR, max amount) is inserted by code, not typed by the LLM.
-- [ ] **Step 8:** Save recommendation as `pending` — no offer is issued until a credit officer acts.
+- [ ] Step 1: Implement application load & schema validation (amount, tenor, date of birth, application date).
+- [ ] Step 2: Implement code-based protected attribute stripping (`gender`, `marital_status`, `religion`, `nationality`) — code only, not LLM — and log that stripping occurred.
+- [ ] Step 3: Implement policy edition selector based on application date — code only, not LLM.
+- [ ] Step 4: Implement LLM Data Extraction returning validated Pydantic JSON with `value` + `source_document` + `source_section` + `quoted_text` for each field.
+- [ ] Step 4 Verification: Write text verifier that normalises and checks each extracted value appears literally in its cited `quoted_text`; raises `UnverifiedExtraction` on mismatch → result becomes "Refer to human".
+- [ ] Step 5: Retrieve relevant policy clauses filtered to the selected edition and current circulars only.
+- [ ] Step 6: Run rule evaluation engine (all rules from Section 2.3); output pass / fail / refer per rule with policy citation.
+- [ ] Step 7: Draft credit memo using LLM — every numeric value (installment, DBR, max amount) is inserted by code, not typed by the LLM.
+- [ ] Step 8: Save recommendation as `pending` — no offer is issued until a credit officer acts.
 - [ ] If any step fails or evidence is missing → result is "Refer to human", never a guess.
-- [ ] **Pipeline test (Fake LLM):** approvable application — must pass.
-- [ ] **Pipeline test (Fake LLM):** over-age application — must fail with correct rule citation.
-- [ ] **Pipeline test (Fake LLM):** invalid LLM JSON output → raises `InvalidLLMOutput` → "Refer to human".
-- [ ] **Pipeline test:** LLM JSON not matching Pydantic schema is explicitly rejected (separate test).
-- [ ] **Fairness Test (`test_fairness`):** submit same application twice changing only protected attributes; assert identical result, calculations, and memo wording.
+- [ ] Pipeline test (Fake LLM): approvable application — must pass.
+- [ ] Pipeline test (Fake LLM): over-age application — must fail with correct rule citation.
+- [ ] Pipeline test (Fake LLM): invalid LLM JSON output → raises `InvalidLLMOutput` → "Refer to human".
+- [ ] Pipeline test: LLM JSON not matching Pydantic schema is explicitly rejected (separate test).
+- [ ] Fairness Test (`test_fairness`): submit same application twice changing only protected attributes; assert identical result, calculations, and memo wording.
 - [ ] All pipeline tests must run without internet or API keys.
 
 ## Phase 4: Database, Authorization & Approval Engine (FR-5, FR-8, FR-9)
@@ -88,7 +90,7 @@
 - [ ] Note in `README.md` exactly what data is sent to the LLM provider.
 
 ## Phase 7: Documentation & Final Deliverables
-- [ ] **`docs/DESIGN.md`** (2–4 pages) must cover:
+- [ ] `docs/DESIGN.md` (2–4 pages) must cover:
   - [ ] Simple architecture diagram.
   - [ ] Chunking strategy choice and rationale.
   - [ ] How the policy edition is selected (with code reference).
@@ -96,9 +98,9 @@
   - [ ] How protected attributes are removed and proven irrelevant (fairness test reference).
   - [ ] Exactly which file to add and which settings to change to switch LLM provider.
   - [ ] What you would add with more time, and what you left out on purpose (honest cuts).
-- [ ] **`docs/EVALUATION.md`**: 15 test cases, real results (including failures), and what failures taught you.
-- [ ] **`docs/AI-USAGE-LOG.md`**: what you asked AI tools to do, what you wrote yourself, and ≥2 cases where the AI was wrong and how you found out.
-- [ ] **`README.md`** must include:
+- [ ] `docs/EVALUATION.md`: 15 test cases, real results (including failures), and what failures taught you.
+- [ ] `docs/AI-USAGE-LOG.md`: what you asked AI tools to do, what you wrote yourself, and ≥2 cases where the AI was wrong and how you found out.
+- [ ] `README.md` must include:
   - [ ] Quick start instructions.
   - [ ] Every environment variable explained.
   - [ ] How to get a free API key for the chosen provider.
@@ -106,9 +108,9 @@
   - [ ] How to run tests and the evaluation script.
   - [ ] A numbered "5-Minute Demo Path".
   - [ ] Exactly what data is sent to the LLM provider.
-- [ ] **`docker-compose.yml`**: `docker compose up` starts everything; one command loads the demo documents.
+- [ ] `docker-compose.yml`: `docker compose up` starts everything; one command loads the demo documents.
 - [ ] Clone the repo fresh and verify it runs end-to-end from the README before submission.
-- [ ] **Demo video (3–5 min, unlisted)** must show in order:
+- [ ] Demo video (3–5 min, unlisted) must show in order:
   - [ ] Document ingestion.
   - [ ] A cited answer to a policy question.
   - [ ] A correct refusal for an out-of-corpus question.
@@ -118,7 +120,7 @@
   - [ ] Credit Officer approval flow — including a rejected attempt above the authority limit.
 
 ## Never Cut (from Section 9)
-- [ ] Calculation engine and its unit tests.
+- [x] Calculation engine and its unit tests.
 - [ ] Fairness test.
 - [ ] Citations and refusals.
 - [ ] The approval step.
