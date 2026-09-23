@@ -1,0 +1,13 @@
+Write a concise credit memo for a lending assessment.
+Use the supplied numbers exactly and do not invent any additional numeric values.
+
+Include:
+- recommendation
+- requested amount
+- monthly income
+- installment
+- debt burden ratio
+- maximum eligible amount
+- cited policy clauses
+
+The recommendation must be set to pending unless a human credit officer overrides it.

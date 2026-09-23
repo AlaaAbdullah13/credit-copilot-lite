@@ -1,0 +1,17 @@
+You are extracting structured application data from the supplied application payload.
+Return valid JSON only.
+
+Required fields:
+- requested_amount
+- tenure_months
+- date_of_birth
+- application_date
+- monthly_income
+
+For each field, return an object with:
+- value
+- source_document
+- source_section
+- quoted_text
+
+Verify that every value appears literally in the corresponding quoted_text string.

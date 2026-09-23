@@ -38,27 +38,27 @@
 - [x] Write integration test for ingestion + retrieval with citation verification.
 
 ## Phase 3: Application Pipeline & LLM Integration (FR-3)
-- [ ] Create abstract `LLMProvider` interface with `complete` and `embed` methods — domain/pipeline code must only call this interface, never a concrete provider directly.
-- [ ] Store all LLM prompts in external files (e.g. `prompts/extract.txt`, `prompts/memo.txt`), never hardcoded strings.
-- [ ] Implement `FakeLLMAdapter` returning deterministic responses for offline pipeline testing (no internet or API keys required).
-- [ ] Implement `GeminiLLMAdapter` / `GroqAdapter` (or equivalent) using a free API tier.
-- [ ] Document in `DESIGN.md` exactly which file to add and which config to change to switch LLM provider.
-- [ ] Step 1: Implement application load & schema validation (amount, tenor, date of birth, application date).
-- [ ] Step 2: Implement code-based protected attribute stripping (`gender`, `marital_status`, `religion`, `nationality`) — code only, not LLM — and log that stripping occurred.
-- [ ] Step 3: Implement policy edition selector based on application date — code only, not LLM.
-- [ ] Step 4: Implement LLM Data Extraction returning validated Pydantic JSON with `value` + `source_document` + `source_section` + `quoted_text` for each field.
-- [ ] Step 4 Verification: Write text verifier that normalises and checks each extracted value appears literally in its cited `quoted_text`; raises `UnverifiedExtraction` on mismatch → result becomes "Refer to human".
-- [ ] Step 5: Retrieve relevant policy clauses filtered to the selected edition and current circulars only.
-- [ ] Step 6: Run rule evaluation engine (all rules from Section 2.3); output pass / fail / refer per rule with policy citation.
-- [ ] Step 7: Draft credit memo using LLM — every numeric value (installment, DBR, max amount) is inserted by code, not typed by the LLM.
-- [ ] Step 8: Save recommendation as `pending` — no offer is issued until a credit officer acts.
-- [ ] If any step fails or evidence is missing → result is "Refer to human", never a guess.
-- [ ] Pipeline test (Fake LLM): approvable application — must pass.
-- [ ] Pipeline test (Fake LLM): over-age application — must fail with correct rule citation.
-- [ ] Pipeline test (Fake LLM): invalid LLM JSON output → raises `InvalidLLMOutput` → "Refer to human".
-- [ ] Pipeline test: LLM JSON not matching Pydantic schema is explicitly rejected (separate test).
-- [ ] Fairness Test (`test_fairness`): submit same application twice changing only protected attributes; assert identical result, calculations, and memo wording.
-- [ ] All pipeline tests must run without internet or API keys.
+- [x] Create abstract `LLMProvider` interface with `complete` and `embed` methods — domain/pipeline code must only call this interface, never a concrete provider directly.
+- [x] Store all LLM prompts in external files (e.g. `prompts/extract.txt`, `prompts/memo.txt`), never hardcoded strings.
+- [x] Implement `FakeLLMAdapter` returning deterministic responses for offline pipeline testing (no internet or API keys required).
+- [x] Implement `GeminiLLMAdapter` / `GroqAdapter` (or equivalent) using a free API tier.
+- [x] Document in `DESIGN.md` exactly which file to add and which config to change to switch LLM provider.
+- [x] Step 1: Implement application load & schema validation (amount, tenor, date of birth, application date).
+- [x] Step 2: Implement code-based protected attribute stripping (`gender`, `marital_status`, `religion`, `nationality`) — code only, not LLM — and log that stripping occurred.
+- [x] Step 3: Implement policy edition selector based on application date — code only, not LLM.
+- [x] Step 4: Implement LLM Data Extraction returning validated Pydantic JSON with `value` + `source_document` + `source_section` + `quoted_text` for each field.
+- [x] Step 4 Verification: Write text verifier that normalises and checks each extracted value appears literally in its cited `quoted_text`; raises `UnverifiedExtraction` on mismatch → result becomes "Refer to human".
+- [x] Step 5: Retrieve relevant policy clauses filtered to the selected edition and current circulars only.
+- [x] Step 6: Run rule evaluation engine (all rules from Section 2.3); output pass / fail / refer per rule with policy citation.
+- [x] Step 7: Draft credit memo using LLM — every numeric value (installment, DBR, max amount) is inserted by code, not typed by the LLM.
+- [x] Step 8: Save recommendation as `pending` — no offer is issued until a credit officer acts.
+- [x] If any step fails or evidence is missing → result is "Refer to human", never a guess.
+- [x] Pipeline test (Fake LLM): approvable application — must pass.
+- [x] Pipeline test (Fake LLM): over-age application — must fail with correct rule citation.
+- [x] Pipeline test (Fake LLM): invalid LLM JSON output → raises `InvalidLLMOutput` → "Refer to human".
+- [x] Pipeline test: LLM JSON not matching Pydantic schema is explicitly rejected (separate test).
+- [x] Fairness Test (`test_fairness`): submit same application twice changing only protected attributes; assert identical result, calculations, and memo wording.
+- [x] All pipeline tests must run without internet or API keys.
 
 ## Phase 4: Database, Authorization & Approval Engine (FR-5, FR-8, FR-9)
 - [ ] Setup relational database (SQLite or PostgreSQL) with Alembic migrations — schema must never be created by ad-hoc startup code.
