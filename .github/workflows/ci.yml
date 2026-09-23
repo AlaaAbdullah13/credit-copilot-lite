@@ -13,16 +13,29 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements-dev.txt') }}
+
+      - name: Install & debug Python environment
         run: |
-          python -m pip install --upgrade pip
-          pip install ruff pytest pydantic sqlalchemy
+          python -V
+          python -m pip --version
+          python -m pip install --upgrade pip setuptools wheel
+          # retry pip install up to 3 times to mitigate transient network issues
+          for i in 1 2 3; do
+            python -m pip install -r requirements-dev.txt && break || sleep 5
+          done
+          python -m pip list
+          which ruff || true
+          ruff --version || true
 
       - name: Run Linter (Ruff)
         run: |
