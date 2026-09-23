@@ -29,7 +29,10 @@ jobs:
           python -V
           python -m pip --version
           python -m pip install --upgrade pip setuptools wheel
-          # retry pip install up to 3 times to mitigate transient network issues
+          # Install runtime requirements first, then dev requirements
+          for i in 1 2 3; do
+            python -m pip install -r requirements.txt && break || sleep 5
+          done
           for i in 1 2 3; do
             python -m pip install -r requirements-dev.txt && break || sleep 5
           done
