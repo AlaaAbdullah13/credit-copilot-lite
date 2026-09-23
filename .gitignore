@@ -1,3 +1,10 @@
+__pycache__/
+.venv/
+env/
+.env
+credit_copilot.db
+data/chroma_db/
+*.pyc
 # Python Byte-compiled / cache files
 __pycache__/
 *.py[cod]

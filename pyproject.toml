@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "credit-copilot-lite"
+version = "0.1.0"
+description = "Credit Copilot Lite - RAG assistant boilerplate"
+authors = ["Dev <dev@example.com>"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.poetry.dev-dependencies]
+ruff = "^0.18.0"
+pytest = "^7.4"
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+pythonpath = ["."]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
