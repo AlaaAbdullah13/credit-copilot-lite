@@ -27,15 +27,15 @@
 - [x] Phase 1 validation: Ruff check passed for the calculation module and tests.
 
 ## Phase 2: Document Ingestion & RAG Infrastructure (FR-1, FR-2)
-- [ ] Setup two separate stores: Trusted Vector Store (ChromaDB / Qdrant) for policy docs, and Untrusted Application Store for applicant packs — never mix them.
-- [ ] Build Document Loader supporting PDF, Markdown, and CSV formats.
-- [ ] Implement Clause/Section-based text chunker (split by clause/section ID, not fixed character count) with metadata: `source_file`, `page`, `clause_id`, `policy_edition`, `effective_dates`.
-- [ ] Build ingestion pipeline that is idempotent (running twice must not create duplicate chunks).
-- [ ] Ingestion pipeline must report which documents succeeded and which failed.
-- [ ] Implement semantic (vector) search with policy edition metadata filtering.
-- [ ] Add relevance score threshold: below threshold → return `{"answer": "The documents do not contain enough information.", "citations": [], "reason": "no_chunk_above_threshold"}`.
-- [ ] Every Q&A answer must include a citations list referencing the source chunks.
-- [ ] Write integration test for ingestion + retrieval with citation verification.
+- [x] Setup two separate stores: Trusted Vector Store (ChromaDB / Qdrant) for policy docs, and Untrusted Application Store for applicant packs — never mix them.
+- [x] Build Document Loader supporting PDF, Markdown, and CSV formats.
+- [x] Implement Clause/Section-based text chunker (split by clause/section ID, not fixed character count) with metadata: `source_file`, `page`, `clause_id`, `policy_edition`, `effective_dates`.
+- [x] Build ingestion pipeline that is idempotent (running twice must not create duplicate chunks).
+- [x] Ingestion pipeline must report which documents succeeded and which failed.
+- [x] Implement semantic (vector) search with policy edition metadata filtering.
+- [x] Add relevance score threshold: below threshold → return `{"answer": "The documents do not contain enough information.", "citations": [], "reason": "no_chunk_above_threshold"}`.
+- [x] Every Q&A answer must include a citations list referencing the source chunks.
+- [x] Write integration test for ingestion + retrieval with citation verification.
 
 ## Phase 3: Application Pipeline & LLM Integration (FR-3)
 - [ ] Create abstract `LLMProvider` interface with `complete` and `embed` methods — domain/pipeline code must only call this interface, never a concrete provider directly.
