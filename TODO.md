@@ -61,12 +61,12 @@
 - [x] All pipeline tests must run without internet or API keys.
 
 ## Phase 4: Database, Authorization & Approval Engine (FR-5, FR-8, FR-9)
-- [ ] Setup relational database (SQLite or PostgreSQL) with Alembic migrations — schema must never be created by ad-hoc startup code.
-- [ ] Create models: `Application`, `AssessmentRun`, `ApprovalRecord`, `User`.
-- [ ] Implement per-request logging: request ID, steps executed, chunk IDs retrieved, policy edition used, fields removed in Step 2, tokens consumed.
-- [ ] Implement RBAC: `Loan Officer` (ingest, ask, submit applications) and `Credit Officer` (also approve/reject) — enforced server-side, not by hiding UI buttons.
-- [ ] Implement Approval Flow: `Pending → Approved / Rejected → Issued`. Store approver identity, timestamp, and comment.
-- [ ] Implement server-side authority limit check: reject Credit Officer approval if recommended amount exceeds their limit (e.g. 250,000 EGP); return clear error `AuthorityLimitExceeded`.
+- [x] Setup relational database (SQLite or PostgreSQL) with Alembic migrations — schema must never be created by ad-hoc startup code.
+- [x] Create models: `Application`, `AssessmentRun`, `ApprovalRecord`, `User`.
+- [x] Implement per-request logging: request ID, steps executed, chunk IDs retrieved, policy edition used, fields removed in Step 2, tokens consumed.
+- [x] Implement RBAC: `Loan Officer` (ingest, ask, submit applications) and `Credit Officer` (also approve/reject) — enforced server-side, not by hiding UI buttons.
+- [x] Implement Approval Flow: `Pending → Approved / Rejected → Issued`. Store approver identity, timestamp, and comment.
+- [x] Implement server-side authority limit check: reject Credit Officer approval if recommended amount exceeds their limit (e.g. 250,000 EGP); return clear error `AuthorityLimitExceeded`.
 
 ## Phase 5: API, Interfaces & Evaluation Suite (FR-6, FR-7)
 - [ ] Build FastAPI REST endpoints: `/ingest`, `/query`, `/assess`, `/approve`, `/reject`.
