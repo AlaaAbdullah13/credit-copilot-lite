@@ -60,7 +60,10 @@ class ChromaAdapter(VectorStoreAdapter):
 
     def _coerce_doc(self, doc: dict[str, Any]) -> dict[str, Any]:
         metadata = dict(doc.get("metadata") or {})
-        generated_id = str(doc.get("id") or metadata.get("clause_id") or self._generate_id(doc))
+        # Chroma collection IDs must be globally unique. Clause IDs and PDF page
+        # IDs repeat across policy editions (for example, both PDFs contain
+        # ``page-2``), so derive the storage ID from source, clause, and text.
+        generated_id = self._generate_id(doc)
         return {
             "id": generated_id,
             "text": str(doc.get("text") or "").strip(),
@@ -132,14 +135,19 @@ class ChromaAdapter(VectorStoreAdapter):
                     docs = result.get("documents", [[]])[0]
                     metadatas = result.get("metadatas", [[None]])[0]
                     ids = result.get("ids", [[]])[0]
+                    distances = result.get("distances", [[]])[0]
                     for index, document in enumerate(docs):
+                        distance = distances[index] if index < len(distances) else 1.0
+                        score = round(1.0 - distance, 4)
+                        if threshold is not None and score < threshold:
+                            continue
                         metadata = metadatas[index] if index < len(metadatas) else {}
                         hits.append(
                             {
                                 "id": ids[index] if index < len(ids) else f"hit-{index}",
                                 "text": document,
                                 "metadata": metadata,
-                                "score": 1.0,
+                                "score": score,
                             }
                         )
                     return hits[:k]

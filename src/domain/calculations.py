@@ -87,7 +87,7 @@ def calculate_max_eligible_amount(
         income = _as_decimal(monthly_income)
         obligations = _as_decimal(other_installments)
         dbr_limit = _as_decimal(max_dbr_percent) / Decimal(100)
-        allowable_installment = (income - obligations) * dbr_limit
+        allowable_installment = (income * dbr_limit) - obligations
 
     if allowable_installment < 0:
         return Decimal(0)

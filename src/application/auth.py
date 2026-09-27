@@ -3,6 +3,8 @@ import os
 from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
 
+from src.domain.exceptions import AuthorityLimitExceeded
+
 # Simple header-based role check for boilerplate/demo purposes
 API_KEY_HEADER = APIKeyHeader(name="X-Role", auto_error=False)
 
@@ -21,4 +23,6 @@ def require_role(role: str):
 def enforce_authority_limit(amount: float):
     limit = float(os.getenv("CREDIT_OFFICER_AUTHORITY_LIMIT", "250000"))
     if amount > limit:
-        raise HTTPException(status_code=403, detail="Authority limit exceeded")
+        raise AuthorityLimitExceeded(
+            f"Amount EGP {amount:,.0f} exceeds authority limit EGP {limit:,.0f}."
+        )
