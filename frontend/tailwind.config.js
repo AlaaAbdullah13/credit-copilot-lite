@@ -1,0 +1,2 @@
+/** @type {import('tailwindcss').Config} */
+export default { content: ["./index.html", "./src/**/*.{ts,tsx}"], theme: { extend: { colors: { navy: "#0B1020", surface: "#121A2B", card: "#182238", primary: "#8B7CFF", secondary: "#5EEAD4", accent: "#A78BFA", success: "#34D399", warning: "#FBBF24", danger: "#FB7185", ink: "#F8FAFC", muted: "#94A3B8" }, boxShadow: { glow: "0 0 45px rgba(139,124,255,.22)" } } }, plugins: [] };
