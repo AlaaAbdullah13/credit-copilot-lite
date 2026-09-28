@@ -19,10 +19,14 @@ class FakeLLMAdapter(LLMProvider):
             return value.isoformat()
         return value
 
+    @staticmethod
+    def _display(value: Any) -> Any:
+        return int(value) if isinstance(value, float) and value.is_integer() else value
+
     def complete(self, prompt: str, **kwargs: Any) -> dict[str, Any]:
         lowered = (prompt or "").lower()
         payload = kwargs.get("application") or kwargs.get("input") or kwargs.get("json") or {}
-        payload = {key: self._normalize_value(value) for key, value in payload.items()}
+        payload = {key: self._display(self._normalize_value(value)) for key, value in payload.items()}
 
         if "extract" in lowered:
             extraction = {
@@ -50,12 +54,15 @@ class FakeLLMAdapter(LLMProvider):
                     "source_section": "submission-details",
                     "quoted_text": f"Application date: {payload.get('application_date', '2025-01-15')}",
                 },
-                "monthly_income": {
+                "net_monthly_income": {
                     "value": payload.get("monthly_income", 15000),
                     "source_document": "application-form",
                     "source_section": "income-details",
                     "quoted_text": f"Monthly income: {payload.get('monthly_income', 15000)} EGP",
                 },
+                "existing_monthly_obligations": {"value": payload.get("other_monthly_installments", 0), "source_document": "application-form", "source_section": "income-details", "quoted_text": f"Obligations: {payload.get('other_monthly_installments', 0)} EGP"},
+                "employment_start_date": {"value": payload.get("employment_start_date", "2020-01-01"), "source_document": "application-form", "source_section": "employment", "quoted_text": f"Employment start: {payload.get('employment_start_date', '2020-01-01')}"},
+                "bureau_score": {"value": payload.get("bureau_score", 700), "source_document": "application-form", "source_section": "bureau", "quoted_text": f"Bureau score: {payload.get('bureau_score', 700)}"},
             }
             return {"content": json.dumps(extraction), "json": extraction}
 

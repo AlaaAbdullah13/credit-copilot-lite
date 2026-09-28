@@ -18,10 +18,20 @@ class AuthorityLimitExceeded(Exception):
     """Raised when a Credit Officer attempts to approve an application exceeding their limit."""
 
 
+class PricingNotFound(Exception):
+    """Raised when no pricing-table row applies to an application."""
+
+
+class PolicySourceUnavailable(Exception):
+    """Raised when a required policy source cannot be read at runtime."""
+
+
 __all__ = [
     "AuthorityLimitExceeded",
     "InvalidApplication",
     "InvalidLLMOutput",
     "PolicyEditionNotFound",
+    "PolicySourceUnavailable",
+    "PricingNotFound",
     "UnverifiedExtraction",
 ]

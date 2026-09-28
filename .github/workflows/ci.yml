@@ -18,6 +18,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install PDF tooling
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
       - name: Cache pip
         uses: actions/cache@v4
         with:

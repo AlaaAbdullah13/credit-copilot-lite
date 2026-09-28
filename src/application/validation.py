@@ -56,11 +56,8 @@ def load_application(payload: Mapping[str, Any] | None) -> dict[str, Any]:
     if normalized["application_date"] < normalized["date_of_birth"]:
         raise InvalidApplication("application_date cannot be earlier than date_of_birth")
 
-    normalized.setdefault("annual_rate", 12.5)
     normalized.setdefault("monthly_income", 0.0)
     normalized.setdefault("other_monthly_installments", 0.0)
-    normalized.setdefault("bureau_score", 700)
-    normalized.setdefault("months_employed", 12)
 
     return normalized
 

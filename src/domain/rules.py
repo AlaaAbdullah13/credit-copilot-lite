@@ -24,5 +24,5 @@ def bureau_score_ok(score: int | None, min_score: int | None) -> bool:
     return score >= min_score
 
 
-def dbr_ok(dbr_percent: float, max_dbr_percent: float = 50.0) -> bool:
+def dbr_ok(dbr_percent: float, max_dbr_percent: float) -> bool:
     return dbr_percent <= max_dbr_percent

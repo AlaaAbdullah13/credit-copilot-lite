@@ -10,17 +10,27 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from src.application.anonymizer import anonymize_application
+from src.application.policy_data import (
+    load_annual_rate,
+    load_credit_policy_limits,
+    load_product_limits,
+)
 from src.application.validation import load_application, select_policy_edition
 from src.domain.calculations import (
     age_at_maturity_check,
     calculate_dbr,
+    calculate_exact_dbr,
     calculate_installment,
     calculate_max_eligible_amount,
+    employment_duration_ok,
+    evaluate_bureau_score,
     validate_product_limits,
 )
 from src.domain.exceptions import (
     InvalidLLMOutput,
     PolicyEditionNotFound,
+    PolicySourceUnavailable,
+    PricingNotFound,
     UnverifiedExtraction,
 )
 from src.domain.models.memo import CreditMemo
@@ -45,7 +55,10 @@ class ApplicationExtraction(BaseModel):
     tenure_months: ExtractionField
     date_of_birth: ExtractionField
     application_date: ExtractionField
-    monthly_income: ExtractionField | None = None
+    net_monthly_income: ExtractionField
+    existing_monthly_obligations: ExtractionField
+    employment_start_date: ExtractionField
+    bureau_score: ExtractionField
 
 
 def _to_json_object(value: Any) -> dict[str, Any]:
@@ -86,13 +99,13 @@ def _verify_value(value: Any, quoted_text: Any) -> None:
     )
 
 
-def _validate_extraction_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _validate_extraction_payload(payload: dict[str, Any], documents: Mapping[str, str]) -> dict[str, Any]:
     for field_name in [
         "requested_amount",
         "tenure_months",
         "date_of_birth",
         "application_date",
-        "monthly_income",
+        "net_monthly_income", "existing_monthly_obligations", "employment_start_date", "bureau_score",
     ]:
         if field_name not in payload:
             continue
@@ -100,6 +113,9 @@ def _validate_extraction_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(field, dict):
             raise InvalidLLMOutput(f"Field {field_name!r} is not an object")
         _verify_value(field.get("value"), field.get("quoted_text"))
+        source = field.get("source_document")
+        if not source or _normalize_text(field["quoted_text"]) not in _normalize_text(documents.get(source, "")):
+            raise UnverifiedExtraction("Quoted extraction text was not found in the cited document")
 
     try:
         return ApplicationExtraction.model_validate(payload).model_dump(mode="python")
@@ -115,14 +131,14 @@ def extract_structured_data(
 ) -> ApplicationExtraction:
     """Use the configured LLM to extract a validated application payload."""
     provider = llm or create_llm_provider()
-    prompt = load_prompt("extract")
+    prompt = load_prompt("extract").replace("{{untrusted_document}}", "\n".join(application.get("documents", {}).values()))
     response = provider.complete(prompt, application=dict(application))
     payload = response.get("json") if isinstance(response, dict) and isinstance(response.get("json"), dict) else None
     if payload is None:
         text = response.get("content") if isinstance(response, dict) else response
         payload = _to_json_object(text)
 
-    validated = _validate_extraction_payload(payload)
+    validated = _validate_extraction_payload(payload, application.get("documents", {}))
     return ApplicationExtraction.model_validate(validated)
 
 
@@ -179,20 +195,12 @@ def evaluate_rules(
     citations: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     app = load_application(application)
-    max_dbr = 45.0 if policy_edition == "2025" else 50.0
-    max_tenor = 72 if policy_edition == "2025" else 60
-    age_limit = 69
+    policy_limits = load_credit_policy_limits(policy_edition)
 
     rules: list[dict[str, Any]] = []
 
-    amount_ok = validate_product_limits(
-        app["requested_amount"],
-        app["tenure_months"],
-        min_amount=20000,
-        max_amount=1000000,
-        min_tenor=12,
-        max_tenor=max_tenor,
-    )
+    limits = load_product_limits()
+    amount_ok = validate_product_limits(app["requested_amount"], app["tenure_months"], **limits)
     rules.append(
         {
             "rule": "product_limits",
@@ -201,19 +209,29 @@ def evaluate_rules(
         }
     )
 
-    emi = calculate_installment(app["requested_amount"], app.get("annual_rate", 12.5), app["tenure_months"])
+    rules.append({"rule": "min_income", "status": "pass" if Decimal(str(app.get("monthly_income", 0))) >= policy_limits["min_income"] else "fail"})
+    rules.append({"rule": "employment_duration", "status": "pass" if employment_duration_ok(app.get("months_employed"), policy_limits["min_employment_months"]) else "fail"})
+    rules.append({"rule": "bureau_score", "status": "pass" if evaluate_bureau_score(app.get("bureau_score"), policy_limits["min_bureau_score"]) else "refer"})
+
+    segment = "payroll_transfer" if app.get("salary_transferred_to_delta") else "standard"
+    try:
+        annual_rate = load_annual_rate(app["tenure_months"], segment)
+    except PricingNotFound:
+        return rules
+    emi = calculate_installment(app["requested_amount"], annual_rate, app["tenure_months"])
+    exact_dbr = calculate_exact_dbr(emi, app.get("monthly_income", 0), app.get("other_monthly_installments", 0))
     dbr = calculate_dbr(emi, app.get("monthly_income", 0), app.get("other_monthly_installments", 0))
     rules.append(
         {
             "rule": "debt_burden_ratio",
-            "status": "pass" if float(dbr) <= max_dbr else "fail",
+            "status": "pass" if exact_dbr <= policy_limits["max_dbr"] else "fail",
             "value": float(dbr),
-            "limit": max_dbr,
+            "limit": policy_limits["max_dbr"],
             "citation": next((item for item in citations or [] if item.get("clause_id") in {"C-2", "C-1"}), {"source_file": "circular-2025-02.md"}),
         }
     )
 
-    age_ok = age_at_maturity_check(app["date_of_birth"], app["application_date"], app["tenure_months"], age_limit)
+    age_ok = age_at_maturity_check(app["date_of_birth"], app["application_date"], app["tenure_months"], policy_limits["max_age_at_maturity"])
     rules.append(
         {
             "rule": "age_at_maturity",
@@ -235,6 +253,16 @@ def evaluate_rules(
     return rules
 
 
+def draft_credit_memo(provider: LLMProvider, application: Mapping[str, Any], calculations: Mapping[str, Any], citations: list[dict[str, Any]]) -> str:
+    """Draft prose only; deterministic values are inserted into the prompt by code."""
+    prompt = load_prompt("memo")
+    for name in ("requested_amount", "monthly_income", "emi", "dbr", "max_amount"):
+        prompt = prompt.replace("{{" + name + "}}", str(calculations.get(name, application.get(name, 0))))
+    code_values = {**application, **calculations, "calculations": dict(calculations)}
+    response = provider.complete(prompt, application=dict(code_values), calculations=dict(calculations), citations=citations)
+    return json.dumps(response["json"]) if isinstance(response, dict) and isinstance(response.get("json"), dict) else str(response.get("content") if isinstance(response, dict) else response)
+
+
 def run_assessment(
     application: Mapping[str, Any],
     policy: Mapping[str, Any] | None = None,
@@ -252,38 +280,31 @@ def run_assessment(
         extraction = extract_structured_data(sanitized, llm=provider, raise_on_error=True)
 
         citations = retrieve_policy_clauses(policy_edition, store=store)
-        rule_results = evaluate_rules(app, policy_edition, citations)
+        rule_results = evaluate_rules(sanitized, policy_edition, citations)
 
-        emi = calculate_installment(app["requested_amount"], app.get("annual_rate", 12.5), app["tenure_months"])
+        segment = "payroll_transfer" if app.get("salary_transferred_to_delta") else "standard"
+        annual_rate = load_annual_rate(app["tenure_months"], segment)
+        emi = calculate_installment(app["requested_amount"], annual_rate, app["tenure_months"])
         dbr = calculate_dbr(emi, app.get("monthly_income", 0), app.get("other_monthly_installments", 0))
         max_amount = calculate_max_eligible_amount(
             emi,
-            app.get("annual_rate", 12.5),
+            annual_rate,
             app["tenure_months"],
             monthly_income=app.get("monthly_income", 0),
-            max_dbr_percent=45 if policy_edition == "2025" else 50,
+            max_dbr=load_credit_policy_limits(policy_edition)["max_dbr"],
             other_installments=app.get("other_monthly_installments", 0),
         )
         calculations = {
             "requested_amount": float(app["requested_amount"]),
+            "annual_rate": float(annual_rate),
             "emi": float(emi),
             "dbr": float(dbr),
             "max_amount": float(max_amount),
             "tenure_months": int(app["tenure_months"]),
-            "policy_edition": policy_edition,
+            "policy_edition": f"CP-{policy_edition}",
         }
 
-        memo_prompt = load_prompt("memo")
-        memo_prompt = memo_prompt.replace("{{requested_amount}}", str(app["requested_amount"]))
-        memo_prompt = memo_prompt.replace("{{monthly_income}}", str(app.get("monthly_income", 0)))
-        memo_prompt = memo_prompt.replace("{{emi}}", str(emi))
-        memo_prompt = memo_prompt.replace("{{dbr}}", str(dbr))
-        memo_prompt = memo_prompt.replace("{{max_amount}}", str(max_amount))
-
-        memo_response = provider.complete(memo_prompt, application=app, calculations=calculations, citations=citations)
-        memo_text = memo_response.get("content") if isinstance(memo_response, dict) else str(memo_response)
-        if isinstance(memo_response, dict) and isinstance(memo_response.get("json"), dict):
-            memo_text = json.dumps(memo_response["json"])
+        memo_text = draft_credit_memo(provider, sanitized, calculations, citations)
 
         memo = CreditMemo(
             application_id=str(app.get("id") or app.get("application_id") or "unknown"),
@@ -297,7 +318,7 @@ def run_assessment(
             decision="pending",
         )
         return memo
-    except (InvalidLLMOutput, PolicyEditionNotFound, UnverifiedExtraction, ValueError, TypeError) as exc:
+    except (InvalidLLMOutput, PolicyEditionNotFound, PolicySourceUnavailable, PricingNotFound, UnverifiedExtraction, ValueError, TypeError) as exc:
         if raise_on_error:
             raise
         memo = CreditMemo(

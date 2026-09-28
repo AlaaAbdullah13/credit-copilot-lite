@@ -8,8 +8,8 @@ Usage:
 """
 from __future__ import annotations
 
-import sys
 import os
+import sys
 
 # Ensure the project root (credit-copilot-lite/) is on sys.path so that
 # `from src.xxx import ...` works regardless of the working directory or
@@ -120,7 +120,7 @@ EVALUATION_CASES: list[dict[str, Any]] = [
         "expected": {
             "monthly_instalment": Decimal("8630.39"),
             "debt_burden_ratio": Decimal("42.10"),
-            "maximum_eligible_amount": Decimal("382000"),
+            "maximum_eligible_amount": Decimal(382000),
         },
     },
     {
@@ -177,7 +177,7 @@ EVALUATION_CASES: list[dict[str, Any]] = [
         "expected": {
             "monthly_instalment": Decimal("10068.79"),
             "debt_burden_ratio": Decimal("46.90"),
-            "maximum_eligible_amount": Decimal("330000"),
+            "maximum_eligible_amount": Decimal(330000),
         },
     },
 
@@ -471,8 +471,8 @@ def _build_shared_store():
     and return the store plus strict and lenient query functions. This keeps the in-memory documents
     alive for the entire evaluation run even when ChromaDB is not installed.
     """
-    from src.infrastructure.vector_store.chroma_adapter import ChromaAdapter
     from src.infrastructure.ingestion.pipeline import ingest_documents, query_policy
+    from src.infrastructure.vector_store.chroma_adapter import ChromaAdapter
 
     shared_store = ChromaAdapter()
     total = 0

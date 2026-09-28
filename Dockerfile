@@ -6,6 +6,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
 build-essential \
+poppler-utils \
 && rm -rf /var/lib/apt/lists/*
 
 # Copy dependency files first for layer caching
