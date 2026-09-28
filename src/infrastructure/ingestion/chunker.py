@@ -10,7 +10,11 @@ def _infer_policy_edition(source_file: str | None) -> str | None:
         return None
     match = re.search(r"(20\d{2})", Path(source_file).name)
     if match:
-        return match.group(1)
+        return (
+            f"CP-{match.group(1)}"
+            if "credit-policy" in Path(source_file).name
+            else None
+        )
     return None
 
 
@@ -46,6 +50,8 @@ def chunk_by_clause(
             or policy_edition
             or _infer_policy_edition(str(file_name)),
             "effective_dates": section.get("effective_dates") or effective_dates,
+            "document_type": section.get("document_type"),
+            "superseded": bool(section.get("superseded", False)),
         }
 
         chunks.append(

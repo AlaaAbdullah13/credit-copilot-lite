@@ -12,6 +12,8 @@ class GeminiLLMAdapter(LLMProvider):
         self.api_key = (api_key or "").strip()
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY is required to use the Gemini adapter.")
+        self.tokens_consumed = 0
+        self.token_usage: dict[str, int] = {}
 
     def _request_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         data = json.dumps(payload).encode("utf-8")
@@ -48,7 +50,10 @@ class GeminiLLMAdapter(LLMProvider):
             except json.JSONDecodeError:
                 parsed = None
 
-        return {"content": content, "json": parsed}
+        usage = _gemini_usage(response)
+        self.token_usage = usage
+        self.tokens_consumed += usage["total_tokens"]
+        return {"content": content, "json": parsed, "usage": usage}
 
     def embed(self, text: str, **kwargs: Any) -> list[float]:
         payload = {
@@ -64,5 +69,15 @@ class GeminiLLMAdapter(LLMProvider):
 
 
 GeminiAdapter = GeminiLLMAdapter
+
+
+def _gemini_usage(response: dict[str, Any]) -> dict[str, int]:
+    metadata = response.get("usageMetadata") or {}
+    return {
+        "prompt_tokens": int(metadata.get("promptTokenCount", 0)),
+        "completion_tokens": int(metadata.get("candidatesTokenCount", 0)),
+        "total_tokens": int(metadata.get("totalTokenCount", 0)),
+    }
+
 
 __all__ = ["GeminiAdapter", "GeminiLLMAdapter"]

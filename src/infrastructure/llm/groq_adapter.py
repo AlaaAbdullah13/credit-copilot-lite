@@ -14,6 +14,8 @@ class GroqLLMAdapter(LLMProvider):
         self.api_key = (api_key or "").strip()
         if not self.api_key:
             raise ValueError("GROQ_API_KEY is required to use the Groq adapter.")
+        self.tokens_consumed = 0
+        self.token_usage: dict[str, int] = {}
 
     def _request_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         data = json.dumps(payload).encode("utf-8")
@@ -55,7 +57,15 @@ class GroqLLMAdapter(LLMProvider):
             except json.JSONDecodeError:
                 parsed = None
 
-        return {"content": content, "json": parsed}
+        provider_usage = response.get("usage") or {}
+        usage = {
+            "prompt_tokens": int(provider_usage.get("prompt_tokens", 0)),
+            "completion_tokens": int(provider_usage.get("completion_tokens", 0)),
+            "total_tokens": int(provider_usage.get("total_tokens", 0)),
+        }
+        self.token_usage = usage
+        self.tokens_consumed += usage["total_tokens"]
+        return {"content": content, "json": parsed, "usage": usage}
 
     def embed(self, text: str, **kwargs: Any) -> list[float]:
         payload = {

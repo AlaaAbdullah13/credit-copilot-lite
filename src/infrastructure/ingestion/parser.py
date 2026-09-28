@@ -146,19 +146,49 @@ def parse_pdf(path: str) -> list[dict[str, Any]]:
     pages = raw_text.split("\f") if "\f" in raw_text else [raw_text]
     sections: list[dict[str, Any]] = []
 
+    clause_pattern = re.compile(r"(?m)^\s*(?P<id>(?:CP|PM)-\d+(?:\.\d+)?)\.?(?:\s|$)")
     for page_index, page_text in enumerate(pages, start=1):
         cleaned = page_text.strip()
         if not cleaned:
             continue
-        sections.append(
-            {
-                "id": f"page-{page_index}",
-                "text": cleaned,
-                "source_file": path,
-                "page": page_index,
-                "policy_edition": infer_policy_edition(path),
-            }
-        )
+        matches = list(clause_pattern.finditer(cleaned))
+        if not matches:
+            sections.append(
+                {
+                    "id": f"page-{page_index}",
+                    "text": cleaned,
+                    "source_file": path,
+                    "page": page_index,
+                    "policy_edition": infer_policy_edition(path),
+                }
+            )
+            continue
+        # Preserve a cover-page preamble but split every numbered policy/manual
+        # clause.  This deliberately avoids arbitrary fixed-size chunks.
+        if matches[0].start() > 0:
+            sections.append(
+                {
+                    "id": f"page-{page_index}-preamble",
+                    "text": cleaned[: matches[0].start()].strip(),
+                    "source_file": path,
+                    "page": page_index,
+                    "policy_edition": infer_policy_edition(path),
+                }
+            )
+        for index, match in enumerate(matches):
+            end = (
+                matches[index + 1].start() if index + 1 < len(matches) else len(cleaned)
+            )
+            text = cleaned[match.start() : end].strip()
+            sections.append(
+                {
+                    "id": match.group("id"),
+                    "text": text,
+                    "source_file": path,
+                    "page": page_index,
+                    "policy_edition": infer_policy_edition(path),
+                }
+            )
 
     return sections
 

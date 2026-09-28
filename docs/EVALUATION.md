@@ -43,7 +43,7 @@ The evaluator uses two retrieval thresholds against the shared policy store:
 
 ## Development findings and fixes
 
-- **ChromaDB score handling:** ChromaDB returns cosine distances, not relevance scores. The adapter now derives `score = 1 - distance` and filters each result by the supplied threshold rather than assigning every hit a score of `1.0`.
+- **ChromaDB score handling:** The collection is explicitly configured with `hnsw:space=cosine`; Chroma returns `distance = 1 - cosine_similarity`, so the adapter derives `score = 1 - distance`. The offline deterministic embedding diagnostic produced in-corpus scores of 0.43–0.58 and the out-of-corpus “crypto-backed loans” score of 0.10, so the default threshold is 0.25. This preserves refusal for the out-of-corpus query without weakening retrieval to make a test pass.
 - **Threshold calibration:** A single threshold either admitted unrelated policy content or excluded valid product-sheet and pricing chunks. Splitting strict refusal and lenient answer thresholds produced both reliable refusals and successful retrievals.
 - **Cross-edition Chroma ID collisions:** Circular clause IDs and PDF page IDs repeat across editions (for example, `C-1` and `page-2`). Source-derived storage IDs now prevent 2025 upserts from overwriting 2024 chunks, while metadata preserves the original clause and edition for citations and filtering.
 - **Edition-specific retrieval wording:** The 2024 DBR calculation clause initially ranked above the clause that states the percentage. Q05 now asks explicitly for the percentage of net monthly income, retrieving the 50% and 45% limit clauses.

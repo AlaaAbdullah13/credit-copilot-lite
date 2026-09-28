@@ -169,15 +169,19 @@ def retrieve_policy_clauses(
     policy_edition: str,
     *,
     store: ChromaAdapter | None = None,
-    threshold: float = 0.01,
+    threshold: float = 0.25,
 ) -> list[dict[str, Any]]:
     vector_store = store or ChromaAdapter()
     policy_files = [
         "data/policy/circular-2024-07.md",
         "data/policy/circular-2025-02.md",
         "data/policy/product-sheet-personal-loan.md",
+        "data/policy/pricing-table.csv",
+        "data/policy/credit-policy-2024.pdf",
+        "data/policy/credit-policy-2025.pdf",
+        "data/policy/credit-procedures-manual.pdf",
     ]
-    ingest_documents(policy_files, store=vector_store, policy_edition=policy_edition)
+    ingest_documents(policy_files, store=vector_store)
 
     search_queries = [
         "maximum tenor unsecured consumer instalment loans",
@@ -252,7 +256,7 @@ def evaluate_rules(
             "status": "pass"
             if Decimal(str(app.get("monthly_income", 0))) >= policy_limits["min_income"]
             else "fail",
-            "citation": citation_for("C-1", "PS-2. Eligibility"),
+            "citation": citation_for("CP-3.3"),
         }
     )
     rules.append(
@@ -263,7 +267,7 @@ def evaluate_rules(
                 app.get("months_employed"), policy_limits["min_employment_months"]
             )
             else "fail",
-            "citation": citation_for("C-1", "PS-2. Eligibility"),
+            "citation": citation_for("CP-3.2"),
         }
     )
     rules.append(
@@ -274,7 +278,7 @@ def evaluate_rules(
                 app.get("bureau_score"), policy_limits["min_bureau_score"]
             )
             else "refer",
-            "citation": citation_for("C-1", "PS-2. Eligibility"),
+            "citation": citation_for("CP-3.6"),
         }
     )
 
@@ -300,7 +304,7 @@ def evaluate_rules(
             "status": "pass" if exact_dbr <= policy_limits["max_dbr"] else "fail",
             "value": float(dbr),
             "limit": policy_limits["max_dbr"],
-            "citation": citation_for("C-2", "C-1"),
+            "citation": citation_for("CP-4.1"),
         }
     )
 
@@ -315,7 +319,7 @@ def evaluate_rules(
             "rule": "age_at_maturity",
             "status": "pass" if age_ok else "fail",
             "value": age_ok,
-            "citation": citation_for("PS-2. Eligibility"),
+            "citation": citation_for("CP-3.5"),
         }
     )
 
@@ -403,7 +407,10 @@ def run_assessment(
             sanitized, llm=provider, raise_on_error=True
         )
 
-        citations = retrieve_policy_clauses(policy_edition, store=store)
+        citations = retrieve_policy_clauses(
+            policy_edition,
+            store=store or ChromaAdapter(embedding_provider=provider),
+        )
         rule_results = evaluate_rules(sanitized, policy_edition, citations)
 
         segment = (
@@ -448,6 +455,7 @@ def run_assessment(
                 "rule_results": rule_results,
                 "memo": memo_text,
                 "tokens_consumed": int(getattr(provider, "tokens_consumed", 0)),
+                "token_usage": dict(getattr(provider, "token_usage", {})),
             },
             decision=recommendation,
             status="pending_approval",

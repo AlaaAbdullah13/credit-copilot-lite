@@ -61,6 +61,7 @@ class AssessmentRun(Base):
     chunk_ids = Column(JSON, nullable=False, default=list)
     removed_fields = Column(JSON, nullable=False, default=list)
     tokens_consumed = Column(Integer, nullable=False, default=0)
+    token_usage = Column(JSON, nullable=False, default=dict)
     status = Column(String, nullable=False, default="pending_approval")
     created_at = Column(
         DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)

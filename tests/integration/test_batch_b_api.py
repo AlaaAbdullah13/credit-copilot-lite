@@ -50,8 +50,14 @@ def api_client(tmp_path, monkeypatch):
 
     importlib.reload(main)
     main.seed_demo_users()
-    with TestClient(main.app) as client:
+    # Starlette 1.x's lifespan TestClient context currently blocks under the
+    # Python 3.13/httpx 0.28 test stack.  These synchronous endpoints have no
+    # startup/shutdown hooks, so avoid the unrelated lifespan protocol here.
+    client = TestClient(main.app)
+    try:
         yield client, main
+    finally:
+        client.close()
 
 
 def test_upgrade_head_creates_all_four_workflow_tables(tmp_path):
@@ -266,7 +272,10 @@ def test_assessment_run_persists_pipeline_audit_data(api_client, tokens):
 
 def test_populated_policy_store_yields_chunk_ids_and_rule_citations(tmp_path):
     """Step 5 must preserve store IDs and cite every deterministic rule."""
-    store = ChromaAdapter(persist_directory=str(tmp_path / "policy-store"))
+    store = ChromaAdapter(
+        persist_directory=str(tmp_path / "policy-store"),
+        embedding_provider=FakeLLMAdapter(),
+    )
     memo = run_assessment(
         application("APP-001"), llm=FakeLLMAdapter(), store=store, raise_on_error=True
     )

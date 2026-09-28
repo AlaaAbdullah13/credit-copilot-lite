@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from datetime import date, datetime
 from typing import Any
 
@@ -13,6 +15,7 @@ class FakeLLMAdapter(LLMProvider):
     def __init__(self, seed: str = "fake") -> None:
         self.seed = seed
         self.tokens_consumed = 0
+        self.token_usage: dict[str, int] = {}
 
     @staticmethod
     def _normalize_value(value: Any) -> Any:
@@ -28,6 +31,11 @@ class FakeLLMAdapter(LLMProvider):
         # FakeLLM has no provider billable usage; this is its explicit,
         # deterministic adapter usage counter rather than an API-layer guess.
         self.tokens_consumed += max(1, len(prompt.split()))
+        self.token_usage = {
+            "prompt_tokens": max(1, len(prompt.split())),
+            "completion_tokens": 0,
+            "total_tokens": max(1, len(prompt.split())),
+        }
         lowered = (prompt or "").lower()
         payload = (
             kwargs.get("application") or kwargs.get("input") or kwargs.get("json") or {}
@@ -88,7 +96,11 @@ class FakeLLMAdapter(LLMProvider):
                     "quoted_text": f"Bureau score: {payload.get('bureau_score', 700)}",
                 },
             }
-            return {"content": json.dumps(extraction), "json": extraction}
+            return {
+                "content": json.dumps(extraction),
+                "json": extraction,
+                "usage": self.token_usage,
+            }
 
         if "memo" in lowered:
             requested_amount = payload.get("requested_amount", 0)
@@ -104,12 +116,27 @@ class FakeLLMAdapter(LLMProvider):
             return {
                 "content": memo_text,
                 "json": {"recommendation": "pending", "summary": memo_text},
+                "usage": self.token_usage,
             }
 
-        return {"content": json.dumps({"result": "ok"}), "json": {"result": "ok"}}
+        return {
+            "content": json.dumps({"result": "ok"}),
+            "json": {"result": "ok"},
+            "usage": self.token_usage,
+        }
 
     def embed(self, text: str, **kwargs: Any) -> list[float]:
-        return [float(ord(char) % 10) / 10 for char in (text or "")[:32]] or [0.0]
+        """Return a fixed-size, deterministic local embedding.
+
+        A fixed dimension is required by vector databases; hashing words also
+        gives the offline test provider useful lexical similarity semantics.
+        """
+        vector = [0.0] * 256
+        for token in re.findall(r"[a-z0-9]+", (text or "").lower()):
+            digest = hashlib.sha256(token.encode("utf-8")).digest()
+            index = digest[0] % len(vector)
+            vector[index] += 1.0
+        return vector
 
     def generate(self, prompt: str, **kwargs: Any) -> dict[str, Any]:
         return self.complete(prompt, **kwargs)

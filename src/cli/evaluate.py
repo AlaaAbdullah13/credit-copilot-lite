@@ -470,9 +470,10 @@ def _build_shared_store():
     alive for the entire evaluation run even when ChromaDB is not installed.
     """
     from src.infrastructure.ingestion.pipeline import ingest_documents, query_policy
+    from src.infrastructure.llm.provider_factory import create_llm_provider
     from src.infrastructure.vector_store.chroma_adapter import ChromaAdapter
 
-    shared_store = ChromaAdapter()
+    shared_store = ChromaAdapter(embedding_provider=create_llm_provider())
     total = 0
     for edition, files in _POLICY_FILES_BY_EDITION:
         result = ingest_documents(files, store=shared_store, policy_edition=edition)

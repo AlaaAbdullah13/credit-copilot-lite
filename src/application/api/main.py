@@ -33,30 +33,36 @@ from src.infrastructure.db.models import (
 )
 from src.infrastructure.db.sql import SessionLocal
 from src.infrastructure.ingestion.pipeline import ingest_documents, query_policy
+from src.infrastructure.llm.provider_factory import create_llm_provider
 from src.infrastructure.vector_store.chroma_adapter import ChromaAdapter
 
 app = FastAPI(title="Credit Copilot Lite")
 staff = require_role("loan_officer", "credit_officer")
 credit = require_role("credit_officer")
-_store = ChromaAdapter()
+# The persistent Chroma client is deliberately lazy: import/reload of the API
+# (as done by offline tests) must not open a database or trigger embedding work.
+_store: ChromaAdapter | None = None
 _seeded = False
+_ingest_report: dict = {}
 
 
 def get_store() -> ChromaAdapter:
-    global _seeded
+    global _seeded, _ingest_report, _store
+    if _store is None:
+        _store = ChromaAdapter(embedding_provider=create_llm_provider())
     if not _seeded:
-        for files, edition in [
-            (["data/policy/circular-2024-07.md"], "2024"),
-            (["data/policy/circular-2025-02.md"], "2025"),
-            (
-                [
-                    "data/policy/product-sheet-personal-loan.md",
-                    "data/policy/pricing-table.csv",
-                ],
-                None,
-            ),
-        ]:
-            ingest_documents(files, store=_store, policy_edition=edition)
+        _ingest_report = ingest_documents(
+            [
+                "data/policy/circular-2024-07.md",
+                "data/policy/circular-2025-02.md",
+                "data/policy/product-sheet-personal-loan.md",
+                "data/policy/pricing-table.csv",
+                "data/policy/credit-policy-2024.pdf",
+                "data/policy/credit-policy-2025.pdf",
+                "data/policy/credit-procedures-manual.pdf",
+            ],
+            store=_store,
+        )
         _seeded = True
     return _store
 
@@ -129,8 +135,8 @@ def login(payload: dict):
 
 @app.post("/ingest")
 def ingest(_: dict = Depends(staff)):
-    store = get_store()
-    return {"status": "ingested", "chunks": len(store._memory_docs)}
+    get_store()
+    return {"status": "ingested", **_ingest_report}
 
 
 @app.post("/query")
@@ -192,6 +198,7 @@ def assess(payload: dict, user: dict = Depends(staff)):
             chunk_ids=[c.get("chunk_id") for c in memo.citations if c.get("chunk_id")],
             removed_fields=sorted(PROTECTED & set(raw)),
             tokens_consumed=_tokens_consumed(memo),
+            token_usage=memo.raw_extraction.get("token_usage", {}),
             status="pending_approval",
         )
         db.add(run)
