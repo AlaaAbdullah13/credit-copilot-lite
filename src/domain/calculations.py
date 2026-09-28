@@ -61,7 +61,9 @@ def calculate_dbr(
     if income <= 0:
         raise ValueError("monthly_income must be > 0")
 
-    return calculate_exact_dbr(installment, income, obligations).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    return calculate_exact_dbr(installment, income, obligations).quantize(
+        Decimal("0.0001"), rounding=ROUND_HALF_UP
+    )
 
 
 def calculate_exact_dbr(
@@ -110,9 +112,9 @@ def calculate_max_eligible_amount(
         principal = allowable_installment * Decimal(months)
     else:
         factor = (Decimal(1) + monthly_rate) ** months
-        principal = (
-            allowable_installment * (factor - Decimal(1))
-        ) / (monthly_rate * factor)
+        principal = (allowable_installment * (factor - Decimal(1))) / (
+            monthly_rate * factor
+        )
 
     return _floor_to_thousands(principal)
 
@@ -144,11 +146,15 @@ def evaluate_bureau_score(score: int | None, min_score: int | None) -> bool:
     return score >= min_score
 
 
-def employment_duration_ok(months_employed: float | Decimal, minimum_months: int | None) -> bool:
+def employment_duration_ok(
+    months_employed: float | Decimal, minimum_months: int | None
+) -> bool:
     """Check the minimum employment duration requirement."""
     if months_employed is None:
         return True
-    return minimum_months is None or _as_decimal(months_employed) >= Decimal(minimum_months)
+    return minimum_months is None or _as_decimal(months_employed) >= Decimal(
+        minimum_months
+    )
 
 
 def validate_product_limits(

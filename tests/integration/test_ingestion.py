@@ -9,7 +9,10 @@ def test_parse_and_chunk_sample():
     chunks = chunk_by_clause(sections)
     assert isinstance(chunks, list)
     assert chunks
-    assert chunks[0]["metadata"]["source_file"] == "data/policy/product-sheet-personal-loan.md"
+    assert (
+        chunks[0]["metadata"]["source_file"]
+        == "data/policy/product-sheet-personal-loan.md"
+    )
 
 
 def test_ingestion_and_query_return_citations():

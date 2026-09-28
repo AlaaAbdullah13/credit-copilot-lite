@@ -25,7 +25,9 @@ def test_app_001_standard_formula_numbers():
     dbr = calculate_dbr(emi, 20500.0)
     assert dbr == Decimal("0.4062")
 
-    max_amount = calculate_max_eligible_amount(emi, annual_rate, months, max_dbr=Decimal("0.50"))
+    max_amount = calculate_max_eligible_amount(
+        emi, annual_rate, months, max_dbr=Decimal("0.50")
+    )
     assert max_amount == Decimal(350000)
 
 
@@ -48,7 +50,12 @@ def test_age_limit_and_product_limits():
     assert age_at_maturity_check(dob, app_date, 60, 69) is True
     assert age_at_maturity_check(dob, app_date, 60, 68) is False
 
-    limits = {"min_amount": 20000, "max_amount": 1000000, "min_tenor": 12, "max_tenor": 60}
+    limits = {
+        "min_amount": 20000,
+        "max_amount": 1000000,
+        "min_tenor": 12,
+        "max_tenor": 60,
+    }
     assert validate_product_limits(20000, 12, **limits) is True
     assert validate_product_limits(1000000, 60, **limits) is True
     assert validate_product_limits(15000, 12, **limits) is False
@@ -64,7 +71,9 @@ def test_bureau_and_employment_checks():
 
 
 def test_max_eligible_amount_rounds_down_to_nearest_thousand():
-    max_amount = calculate_max_eligible_amount(10250.0, 15.0, 60, max_dbr=Decimal("0.50"))
+    max_amount = calculate_max_eligible_amount(
+        10250.0, 15.0, 60, max_dbr=Decimal("0.50")
+    )
     assert max_amount == Decimal(430000)
 
 

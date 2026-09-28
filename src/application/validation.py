@@ -11,6 +11,8 @@ REQUIRED_APPLICATION_FIELDS = {
     "tenure_months",
     "date_of_birth",
     "application_date",
+    "monthly_income",
+    "other_monthly_installments",
 }
 
 
@@ -23,7 +25,9 @@ def _parse_date(value: Any) -> date:
         cleaned = value.strip()
         for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
             try:
-                return datetime.strptime(cleaned, fmt).replace(tzinfo=timezone.utc).date()
+                return (
+                    datetime.strptime(cleaned, fmt).replace(tzinfo=timezone.utc).date()
+                )
             except ValueError:
                 continue
     raise InvalidApplication(f"Invalid date value: {value!r}")
@@ -37,7 +41,9 @@ def load_application(payload: Mapping[str, Any] | None) -> dict[str, Any]:
     normalized: dict[str, Any] = dict(payload)
     missing = sorted(REQUIRED_APPLICATION_FIELDS - set(normalized))
     if missing:
-        raise InvalidApplication(f"Missing required application fields: {', '.join(missing)}")
+        raise InvalidApplication(
+            f"Missing required application fields: {', '.join(missing)}"
+        )
 
     normalized["requested_amount"] = float(normalized["requested_amount"])
     if normalized["requested_amount"] <= 0:
@@ -54,10 +60,19 @@ def load_application(payload: Mapping[str, Any] | None) -> dict[str, Any]:
     normalized["application_date"] = _parse_date(normalized["application_date"])
 
     if normalized["application_date"] < normalized["date_of_birth"]:
-        raise InvalidApplication("application_date cannot be earlier than date_of_birth")
+        raise InvalidApplication(
+            "application_date cannot be earlier than date_of_birth"
+        )
 
-    normalized.setdefault("monthly_income", 0.0)
-    normalized.setdefault("other_monthly_installments", 0.0)
+    for field in ("monthly_income", "other_monthly_installments"):
+        try:
+            normalized[field] = float(normalized[field])
+        except (TypeError, ValueError) as exc:
+            raise InvalidApplication(f"{field} must be a number") from exc
+        if normalized[field] < 0:
+            raise InvalidApplication(f"{field} cannot be negative")
+    if normalized["monthly_income"] <= 0:
+        raise InvalidApplication("monthly_income must be > 0")
 
     return normalized
 
@@ -69,7 +84,9 @@ def select_policy_edition(application_date: Any) -> str:
         return "2025"
     if app_date >= date(2024, 8, 1):
         return "2024"
-    raise PolicyEditionNotFound("No policy edition exists for the supplied application date")
+    raise PolicyEditionNotFound(
+        "No policy edition exists for the supplied application date"
+    )
 
 
 def select_policy_edition_for_date(application_date: Any) -> str:

@@ -17,5 +17,8 @@ def anonymize_application(payload: dict[str, Any]) -> dict[str, Any]:
             out.pop(field)
             stripped.append(field)
     if stripped:
-        logger.info("Protected attributes stripped before LLM use: %s", ", ".join(sorted(stripped)))
+        logger.info(
+            "Protected attributes stripped before LLM use: %s",
+            ", ".join(sorted(stripped)),
+        )
     return out

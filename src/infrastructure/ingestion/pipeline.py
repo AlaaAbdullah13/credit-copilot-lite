@@ -35,7 +35,11 @@ def ingest_documents(
             failed.append({"file": path_text, "error": str(exc)})
 
     vector_store.add_documents(all_chunks)
-    return {"successful": successful, "failed": failed, "chunks_ingested": len(all_chunks)}
+    return {
+        "successful": successful,
+        "failed": failed,
+        "chunks_ingested": len(all_chunks),
+    }
 
 
 def query_policy(
@@ -66,6 +70,7 @@ def query_policy(
         "answer": best["text"],
         "citations": [
             {
+                "chunk_id": best["id"],
                 "source_file": best["metadata"].get("source_file"),
                 "clause_id": best["metadata"].get("clause_id"),
                 "page": best["metadata"].get("page"),

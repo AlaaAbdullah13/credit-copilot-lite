@@ -38,11 +38,16 @@ class ChromaAdapter(VectorStoreAdapter):
                     metadata={"hnsw:space": "cosine"},
                 )
             except (AttributeError, TypeError, ValueError):
-                logger.debug("Chroma unavailable; falling back to in-memory store.", exc_info=True)
+                logger.debug(
+                    "Chroma unavailable; falling back to in-memory store.",
+                    exc_info=True,
+                )
                 self._client = None
                 self.collection = None
 
-    def _canonical_key(self, doc: dict[str, Any]) -> tuple[str, str, str | None, str | None]:
+    def _canonical_key(
+        self, doc: dict[str, Any]
+    ) -> tuple[str, str, str | None, str | None]:
         metadata = dict(doc.get("metadata") or {})
         text = str(doc.get("text") or "").strip()
         source = str(metadata.get("source_file") or "")
@@ -91,7 +96,10 @@ class ChromaAdapter(VectorStoreAdapter):
                         metadatas=[normalized["metadata"]],
                     )
                 except (AttributeError, TypeError, ValueError):
-                    logger.debug("Chroma upsert failed; remaining in memory store.", exc_info=True)
+                    logger.debug(
+                        "Chroma upsert failed; remaining in memory store.",
+                        exc_info=True,
+                    )
 
         return inserted
 
@@ -128,7 +136,9 @@ class ChromaAdapter(VectorStoreAdapter):
                 result = self.collection.query(
                     query_texts=[text],
                     n_results=min(max(k, 1), 10),
-                    where={"policy_edition": policy_edition} if policy_edition else None,
+                    where={"policy_edition": policy_edition}
+                    if policy_edition
+                    else None,
                 )
                 if result and result.get("documents"):
                     hits = []
@@ -144,7 +154,9 @@ class ChromaAdapter(VectorStoreAdapter):
                         metadata = metadatas[index] if index < len(metadatas) else {}
                         hits.append(
                             {
-                                "id": ids[index] if index < len(ids) else f"hit-{index}",
+                                "id": ids[index]
+                                if index < len(ids)
+                                else f"hit-{index}",
                                 "text": document,
                                 "metadata": metadata,
                                 "score": score,
@@ -152,22 +164,30 @@ class ChromaAdapter(VectorStoreAdapter):
                         )
                     return hits[:k]
             except (AttributeError, TypeError, ValueError):
-                logger.debug("Chroma query failed; falling back to in-memory matching.", exc_info=True)
+                logger.debug(
+                    "Chroma query failed; falling back to in-memory matching.",
+                    exc_info=True,
+                )
 
         ranked: list[dict[str, Any]] = []
         for doc in self._memory_docs:
             metadata = doc.get("metadata") or {}
-            if policy_edition and metadata.get("policy_edition") not in {policy_edition, None}:
+            if policy_edition and metadata.get("policy_edition") not in {
+                policy_edition,
+                None,
+            }:
                 continue
             score = self._score(text, doc["text"])
             if threshold is not None and score < threshold:
                 continue
-            ranked.append({
-                "id": doc["id"],
-                "text": doc["text"],
-                "metadata": metadata,
-                "score": round(score, 4),
-            })
+            ranked.append(
+                {
+                    "id": doc["id"],
+                    "text": doc["text"],
+                    "metadata": metadata,
+                    "score": round(score, 4),
+                }
+            )
 
         ranked.sort(key=lambda item: item["score"], reverse=True)
         return ranked[:k]
@@ -177,11 +197,17 @@ class TrustedPolicyStore(ChromaAdapter):
     store_kind = "trusted_policy"
 
     def __init__(self, persist_directory: str = "./data/chroma_db/trusted"):
-        super().__init__(persist_directory=persist_directory, collection_name="trusted_policy_documents")
+        super().__init__(
+            persist_directory=persist_directory,
+            collection_name="trusted_policy_documents",
+        )
 
 
 class UntrustedApplicationStore(ChromaAdapter):
     store_kind = "untrusted_applications"
 
     def __init__(self, persist_directory: str = "./data/chroma_db/untrusted"):
-        super().__init__(persist_directory=persist_directory, collection_name="untrusted_applications")
+        super().__init__(
+            persist_directory=persist_directory,
+            collection_name="untrusted_applications",
+        )

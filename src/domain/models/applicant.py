@@ -8,7 +8,7 @@ class Applicant(BaseModel):
     name: str | None = None
     birth_date: date | None = None
     monthly_income: float
-    other_monthly_installments: float = 0.0
+    other_monthly_installments: float
     nationality: str | None = None
     gender: str | None = None
     marital_status: str | None = None

@@ -31,7 +31,9 @@ def chunk_by_clause(
         if not text:
             continue
 
-        section_id = str(section.get("id") or section.get("clause_id") or f"section-{index}")
+        section_id = str(
+            section.get("id") or section.get("clause_id") or f"section-{index}"
+        )
         heading = str(section.get("heading") or "").strip()
         if heading:
             text = f"{heading}\n{text}"
@@ -40,14 +42,18 @@ def chunk_by_clause(
             "source_file": section.get("source_file") or file_name,
             "page": section.get("page"),
             "clause_id": section_id,
-            "policy_edition": section.get("policy_edition") or policy_edition or _infer_policy_edition(str(file_name)),
+            "policy_edition": section.get("policy_edition")
+            or policy_edition
+            or _infer_policy_edition(str(file_name)),
             "effective_dates": section.get("effective_dates") or effective_dates,
         }
 
-        chunks.append({
-            "id": section_id,
-            "text": text,
-            "metadata": metadata,
-        })
+        chunks.append(
+            {
+                "id": section_id,
+                "text": text,
+                "metadata": metadata,
+            }
+        )
 
     return chunks

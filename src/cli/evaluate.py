@@ -6,6 +6,7 @@ and calculation exactness.
 Usage:
     python src/cli/evaluate.py
 """
+
 from __future__ import annotations
 
 import os
@@ -14,9 +15,7 @@ import sys
 # Ensure the project root (credit-copilot-lite/) is on sys.path so that
 # `from src.xxx import ...` works regardless of the working directory or
 # how the script is invoked (python src/cli/evaluate.py  OR  python evaluate.py).
-_PROJECT_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..")
-)
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
@@ -33,15 +32,13 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 EVALUATION_CASES: list[dict[str, Any]] = [
-
     # ── RETRIEVAL (policy Q&A with citations) ───────────────────────────────
-
     {
         "id": "Q01",
         "kind": "retrieval",
         "description": "Max tenor under current circular",
         "question": "What is the maximum tenor for unsecured consumer instalment loans?",
-        "policy_edition": None,   # uses latest / current
+        "policy_edition": None,  # uses latest / current
         "expected_keywords": ["72 months", "72"],
         "expected_refusal": False,
         "expected_citation_source": "circular-2025-02.md",
@@ -76,9 +73,7 @@ EVALUATION_CASES: list[dict[str, Any]] = [
         "expected_refusal": False,
         "expected_citation_source": "pricing-table.csv",
     },
-
     # ── EDITION-SENSITIVE (answer differs between 2024 and 2025) ────────────
-
     {
         "id": "Q05",
         "kind": "differential",
@@ -101,9 +96,7 @@ EVALUATION_CASES: list[dict[str, Any]] = [
         "expected_answer_b_keywords": ["72 months", "72"],
         "expected_refusal": False,
     },
-
     # ── CALCULATION CASES (exact numeric answers) ────────────────────────────
-
     {
         "id": "Q07",
         "kind": "calculation",
@@ -180,9 +173,7 @@ EVALUATION_CASES: list[dict[str, Any]] = [
             "maximum_eligible_amount": Decimal(330000),
         },
     },
-
     # ── OUT-OF-CORPUS REFUSALS ───────────────────────────────────────────────
-
     {
         "id": "Q11",
         "kind": "refusal",
@@ -207,9 +198,7 @@ EVALUATION_CASES: list[dict[str, Any]] = [
         "expected_refusal": True,
         "expected_reason": "no_chunk_above_threshold",
     },
-
     # ── PROMPT INJECTION ─────────────────────────────────────────────────────
-
     {
         "id": "Q14",
         "kind": "prompt_injection",
@@ -249,17 +238,21 @@ EVALUATION_CASES: list[dict[str, Any]] = [
 # Distribution check (run at import time so misconfigured test sets fail fast)
 # ---------------------------------------------------------------------------
 
+
 def _check_distribution() -> None:
     kinds = [c["kind"] for c in EVALUATION_CASES]
     refusals = kinds.count("refusal")
     differentials = kinds.count("differential")
     calculations = kinds.count("calculation")
     injections = kinds.count("prompt_injection")
-    assert len(EVALUATION_CASES) == 15, f"Expected 15 cases, got {len(EVALUATION_CASES)}"
+    assert len(EVALUATION_CASES) == 15, (
+        f"Expected 15 cases, got {len(EVALUATION_CASES)}"
+    )
     assert refusals >= 3, f"Need ≥3 refusal cases, got {refusals}"
     assert differentials >= 2, f"Need ≥2 differential cases, got {differentials}"
     assert calculations >= 3, f"Need ≥3 calculation cases, got {calculations}"
     assert injections >= 2, f"Need ≥2 injection cases, got {injections}"
+
 
 _check_distribution()
 
@@ -268,13 +261,9 @@ _check_distribution()
 # Helper: normalise text for keyword matching
 # ---------------------------------------------------------------------------
 
+
 def _normalize(text: str) -> str:
-    return " ".join(
-        text.lower()
-        .replace("%", " percent ")
-        .replace(",", "")
-        .split()
-    )
+    return " ".join(text.lower().replace("%", " percent ").replace(",", "").split())
 
 
 def _keywords_found(keywords: list[str], answer: str) -> bool:
@@ -285,6 +274,7 @@ def _keywords_found(keywords: list[str], answer: str) -> bool:
 # ---------------------------------------------------------------------------
 # Case runners
 # ---------------------------------------------------------------------------
+
 
 def _run_document_injection_case(case: dict[str, Any]) -> dict[str, Any]:
     """Handle document-based prompt injection cases (no 'question' key).
@@ -297,7 +287,7 @@ def _run_document_injection_case(case: dict[str, Any]) -> dict[str, Any]:
         "id": case["id"],
         "kind": case["kind"],
         "description": case["description"],
-        "passed": True,          # cannot verify without live LLM pipeline; skipped
+        "passed": True,  # cannot verify without live LLM pipeline; skipped
         "note": (
             "Document-based injection case — requires live pipeline. "
             f"Injection text: {case.get('injection_text', 'N/A')!r}. "
@@ -321,9 +311,8 @@ def _run_retrieval_case(
     result = query_fn(question, policy_edition=edition)
 
     if case.get("expected_refusal"):
-        passed = (
-            result.get("reason") == "no_chunk_above_threshold"
-            and not result.get("citations")
+        passed = result.get("reason") == "no_chunk_above_threshold" and not result.get(
+            "citations"
         )
     else:
         answer = str(result.get("answer", ""))
@@ -449,19 +438,28 @@ def _run_calculation_case(
 # ---------------------------------------------------------------------------
 
 _POLICY_FILES_BY_EDITION: list[tuple[str | None, list[str]]] = [
-    ("2024", [
-        "data/policy/circular-2024-07.md",
-        "data/policy/credit-policy-2024.pdf",
-    ]),
-    ("2025", [
-        "data/policy/circular-2025-02.md",
-        "data/policy/credit-policy-2025.pdf",
-    ]),
-    (None, [
-        "data/policy/product-sheet-personal-loan.md",
-        "data/policy/pricing-table.csv",
-        "data/policy/credit-procedures-manual.pdf",
-    ]),
+    (
+        "2024",
+        [
+            "data/policy/circular-2024-07.md",
+            "data/policy/credit-policy-2024.pdf",
+        ],
+    ),
+    (
+        "2025",
+        [
+            "data/policy/circular-2025-02.md",
+            "data/policy/credit-policy-2025.pdf",
+        ],
+    ),
+    (
+        None,
+        [
+            "data/policy/product-sheet-personal-loan.md",
+            "data/policy/pricing-table.csv",
+            "data/policy/credit-procedures-manual.pdf",
+        ],
+    ),
 ]
 
 
@@ -507,6 +505,7 @@ def _build_shared_store():
 # ---------------------------------------------------------------------------
 # Main evaluate() — wires everything together
 # ---------------------------------------------------------------------------
+
 
 def evaluate(query_fn: Any = None) -> dict[str, Any]:
     """
@@ -618,7 +617,9 @@ if __name__ == "__main__":
     print("\n" + "=" * 50)
     print("EVALUATION SUMMARY")
     print("=" * 50)
-    print(f"Total:                {summary['total_passed']}/{summary['total_cases']} passed")
+    print(
+        f"Total:                {summary['total_passed']}/{summary['total_cases']} passed"
+    )
     print(f"Retrieval hit-rate:   {summary['retrieval_hit_rate']:.0%}  (k=3)")
     print(f"Refusal correctness:  {summary['refusal_correctness']:.0%}")
     print(f"Calculation exactness:{summary['calculation_exactness']:.0%}")

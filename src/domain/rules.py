@@ -1,7 +1,11 @@
 from datetime import datetime, timezone
 
 
-def age_at_maturity_ok(birth_date: datetime.date | None, tenure_months: int, max_age_at_maturity: int | None) -> bool:
+def age_at_maturity_ok(
+    birth_date: datetime.date | None,
+    tenure_months: int,
+    max_age_at_maturity: int | None,
+) -> bool:
     if birth_date is None or max_age_at_maturity is None:
         return True
     # compute age at maturity

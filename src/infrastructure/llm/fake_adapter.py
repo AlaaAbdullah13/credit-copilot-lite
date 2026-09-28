@@ -12,6 +12,7 @@ class FakeLLMAdapter(LLMProvider):
 
     def __init__(self, seed: str = "fake") -> None:
         self.seed = seed
+        self.tokens_consumed = 0
 
     @staticmethod
     def _normalize_value(value: Any) -> Any:
@@ -24,9 +25,17 @@ class FakeLLMAdapter(LLMProvider):
         return int(value) if isinstance(value, float) and value.is_integer() else value
 
     def complete(self, prompt: str, **kwargs: Any) -> dict[str, Any]:
+        # FakeLLM has no provider billable usage; this is its explicit,
+        # deterministic adapter usage counter rather than an API-layer guess.
+        self.tokens_consumed += max(1, len(prompt.split()))
         lowered = (prompt or "").lower()
-        payload = kwargs.get("application") or kwargs.get("input") or kwargs.get("json") or {}
-        payload = {key: self._display(self._normalize_value(value)) for key, value in payload.items()}
+        payload = (
+            kwargs.get("application") or kwargs.get("input") or kwargs.get("json") or {}
+        )
+        payload = {
+            key: self._display(self._normalize_value(value))
+            for key, value in payload.items()
+        }
 
         if "extract" in lowered:
             extraction = {
@@ -60,9 +69,24 @@ class FakeLLMAdapter(LLMProvider):
                     "source_section": "income-details",
                     "quoted_text": f"Monthly income: {payload.get('monthly_income', 15000)} EGP",
                 },
-                "existing_monthly_obligations": {"value": payload.get("other_monthly_installments", 0), "source_document": "application-form", "source_section": "income-details", "quoted_text": f"Obligations: {payload.get('other_monthly_installments', 0)} EGP"},
-                "employment_start_date": {"value": payload.get("employment_start_date", "2020-01-01"), "source_document": "application-form", "source_section": "employment", "quoted_text": f"Employment start: {payload.get('employment_start_date', '2020-01-01')}"},
-                "bureau_score": {"value": payload.get("bureau_score", 700), "source_document": "application-form", "source_section": "bureau", "quoted_text": f"Bureau score: {payload.get('bureau_score', 700)}"},
+                "existing_monthly_obligations": {
+                    "value": payload.get("other_monthly_installments", 0),
+                    "source_document": "application-form",
+                    "source_section": "income-details",
+                    "quoted_text": f"Obligations: {payload.get('other_monthly_installments', 0)} EGP",
+                },
+                "employment_start_date": {
+                    "value": payload.get("employment_start_date", "2020-01-01"),
+                    "source_document": "application-form",
+                    "source_section": "employment",
+                    "quoted_text": f"Employment start: {payload.get('employment_start_date', '2020-01-01')}",
+                },
+                "bureau_score": {
+                    "value": payload.get("bureau_score", 700),
+                    "source_document": "application-form",
+                    "source_section": "bureau",
+                    "quoted_text": f"Bureau score: {payload.get('bureau_score', 700)}",
+                },
             }
             return {"content": json.dumps(extraction), "json": extraction}
 
@@ -77,7 +101,10 @@ class FakeLLMAdapter(LLMProvider):
                 f"{requested_amount} EGP, monthly income is {monthly_income} EGP, "
                 f"EMI is {emi} EGP, DBR is {dbr}%, and the maximum eligible amount is {max_amount} EGP."
             )
-            return {"content": memo_text, "json": {"recommendation": "pending", "summary": memo_text}}
+            return {
+                "content": memo_text,
+                "json": {"recommendation": "pending", "summary": memo_text},
+            }
 
         return {"content": json.dumps({"result": "ok"}), "json": {"result": "ok"}}
 

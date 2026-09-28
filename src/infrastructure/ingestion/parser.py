@@ -50,14 +50,18 @@ def parse_markdown(path: str) -> list[dict[str, Any]]:
             continue
 
         heading_match = re.match(r"^(#+)\s+(.*)$", block, re.MULTILINE)
-        heading = heading_match.group(2).strip() if heading_match else f"section-{index}"
+        heading = (
+            heading_match.group(2).strip() if heading_match else f"section-{index}"
+        )
         body = re.sub(r"^#+\s+.*\n?", "", block, count=1).strip()
         if not body:
             body = heading
 
         sections.append(
             {
-                "id": heading_match.group(2).strip() if heading_match else f"section-{index}",
+                "id": heading_match.group(2).strip()
+                if heading_match
+                else f"section-{index}",
                 "heading": heading,
                 "text": body,
                 "source_file": path,

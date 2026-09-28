@@ -39,7 +39,9 @@ class GroqLLMAdapter(LLMProvider):
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0,
         }
-        response = self._request_json("https://api.groq.com/openai/v1/chat/completions", payload)
+        response = self._request_json(
+            "https://api.groq.com/openai/v1/chat/completions", payload
+        )
         content = ""
         try:
             content = response["choices"][0]["message"]["content"]
@@ -60,11 +62,15 @@ class GroqLLMAdapter(LLMProvider):
             "input": text,
             "model": "text-embedding-3-small",
         }
-        response = self._request_json("https://api.groq.com/openai/v1/embeddings", payload)
+        response = self._request_json(
+            "https://api.groq.com/openai/v1/embeddings", payload
+        )
         try:
             return response["data"][0]["embedding"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise RuntimeError("Groq embedding response was missing vector data.") from exc
+            raise RuntimeError(
+                "Groq embedding response was missing vector data."
+            ) from exc
 
 
 GroqAdapter = GroqLLMAdapter
