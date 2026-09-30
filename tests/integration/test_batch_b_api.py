@@ -137,6 +137,22 @@ def test_login_uses_stored_role_not_role_claim(api_client):
     )
 
 
+def test_openapi_documents_bearer_auth_and_typed_login(api_client):
+    client, _ = api_client
+    schema = client.get("/openapi.json").json()
+
+    assert schema["components"]["securitySchemes"]["BearerAuth"] == {
+        "type": "http",
+        "description": "Paste the token returned by /login.",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+    }
+    assert schema["paths"]["/approve"]["post"]["security"] == [{"BearerAuth": []}]
+    assert schema["paths"]["/login"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]["$ref"].endswith("/LoginRequest")
+
+
 def test_demo_seed_refreshes_passwords_and_login_rejects_old_password(
     api_client, monkeypatch
 ):

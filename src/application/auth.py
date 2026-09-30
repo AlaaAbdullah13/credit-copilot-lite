@@ -10,7 +10,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from src.domain.exceptions import AuthorityLimitExceeded
 
-bearer = HTTPBearer(auto_error=False)
+bearer = HTTPBearer(
+    auto_error=False,
+    scheme_name="BearerAuth",
+    bearerFormat="JWT",
+    description="Paste the token returned by /login.",
+)
 ALGORITHM = "HS256"
 
 

@@ -7,6 +7,19 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from src.application.anonymizer import PROTECTED
+from src.application.api.schemas import (
+    ApplicationStatusResponse,
+    AssessRequest,
+    AssessResponse,
+    DecisionRequest,
+    ErrorResponse,
+    IngestResponse,
+    IssueRequest,
+    LoginRequest,
+    LoginResponse,
+    QueryRequest,
+    QueryResponse,
+)
 from src.application.auth import (
     enforce_authority_limit,
     hash_password,
@@ -36,7 +49,10 @@ from src.infrastructure.ingestion.pipeline import ingest_documents, query_policy
 from src.infrastructure.llm.provider_factory import create_llm_provider
 from src.infrastructure.vector_store.chroma_adapter import ChromaAdapter
 
-app = FastAPI(title="Credit Copilot Lite")
+app = FastAPI(
+    title="Credit Copilot Lite",
+    description="Grounded personal-loan assessment with human approval controls.",
+)
 staff = require_role("loan_officer", "credit_officer")
 credit = require_role("credit_officer")
 # The persistent Chroma client is deliberately lazy: import/reload of the API
@@ -126,9 +142,11 @@ def seed_demo_users() -> None:
         db.commit()
 
 
-@app.post("/login")
-def login(payload: dict):
-    username, password = payload.get("username"), payload.get("password")
+@app.post(
+    "/login", response_model=LoginResponse, responses={401: {"model": ErrorResponse}}
+)
+def login(payload: LoginRequest):
+    username, password = payload.username, payload.password
     if not username or not password:
         raise HTTPException(400, "username and password are required")
     with SessionLocal() as db:
@@ -142,33 +160,37 @@ def login(payload: dict):
         }
 
 
-@app.post("/ingest")
+@app.post("/ingest", response_model=IngestResponse)
 def ingest(_: dict = Depends(staff)):
     get_store()
     return {"status": "ingested", **_ingest_report}
 
 
-@app.post("/query")
-def query(payload: dict, _: dict = Depends(staff)):
-    if not payload.get("question"):
+@app.post(
+    "/query", response_model=QueryResponse, responses={422: {"model": ErrorResponse}}
+)
+def query(payload: QueryRequest, _: dict = Depends(staff)):
+    if not payload.question:
         raise InvalidApplication("question is required")
     return query_policy(
-        payload["question"],
+        payload.question,
         store=get_store(),
-        policy_edition=payload.get("policy_edition"),
+        policy_edition=payload.policy_edition,
         threshold=0.40,
         k=3,
     )
 
 
-@app.post("/assess")
-def assess(payload: dict, user: dict = Depends(staff)):
+@app.post(
+    "/assess", response_model=AssessResponse, responses={422: {"model": ErrorResponse}}
+)
+def assess(payload: AssessRequest, user: dict = Depends(staff)):
     raw, normalized = (
-        payload.get("application", {}),
-        load_application(payload.get("application", {})),
+        payload.application,
+        load_application(payload.application),
     )
     memo, request_id = (
-        run_assessment(raw, payload.get("policy", {}), store=get_store()),
+        run_assessment(raw, payload.policy, store=get_store()),
         str(uuid.uuid4()),
     )
     with SessionLocal() as db:
@@ -225,12 +247,12 @@ def _tokens_consumed(memo) -> int:
     return int(memo.raw_extraction.get("tokens_consumed", 0))
 
 
-def _transition(payload: dict, user: dict, decision: str):
-    if not payload.get("application_id"):
+def _transition(payload: DecisionRequest, user: dict, decision: str):
+    if not payload.application_id:
         raise InvalidApplication("application_id is required")
     with SessionLocal() as db:
         application, actor = (
-            db.get(Application, payload["application_id"]),
+            db.get(Application, payload.application_id),
             db.query(User).filter(User.username == user["sub"]).one(),
         )
         if application is None:
@@ -239,17 +261,21 @@ def _transition(payload: dict, user: dict, decision: str):
             raise HTTPException(
                 409, "Only pending applications can be approved or rejected"
             )
-        amount = float(payload.get("amount", application.requested_amount))
+        amount = float(
+            payload.amount
+            if payload.amount is not None
+            else application.requested_amount
+        )
         if decision == "Approved":
             enforce_authority_limit(amount, actor.authority_limit)
         application.status = decision.lower()
-        application.decision_reason = payload.get("comment")
+        application.decision_reason = payload.comment
         db.add(
             ApprovalRecord(
                 application_id=application.id,
                 approver_id=actor.id,
                 decision=decision,
-                comment=payload.get("comment"),
+                comment=payload.comment,
                 amount=amount,
             )
         )
@@ -257,20 +283,24 @@ def _transition(payload: dict, user: dict, decision: str):
         return {"application_id": application.id, "status": application.status}
 
 
-@app.post("/approve")
-def approve(payload: dict, user: dict = Depends(credit)):
+@app.post(
+    "/approve",
+    response_model=ApplicationStatusResponse,
+    responses={403: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+def approve(payload: DecisionRequest, user: dict = Depends(credit)):
     return _transition(payload, user, "Approved")
 
 
-@app.post("/reject")
-def reject(payload: dict, user: dict = Depends(credit)):
+@app.post("/reject", response_model=ApplicationStatusResponse)
+def reject(payload: DecisionRequest, user: dict = Depends(credit)):
     return _transition(payload, user, "Rejected")
 
 
-@app.post("/issue")
-def issue(payload: dict, _: dict = Depends(credit)):
+@app.post("/issue", response_model=ApplicationStatusResponse)
+def issue(payload: IssueRequest, _: dict = Depends(credit)):
     with SessionLocal() as db:
-        application = db.get(Application, payload.get("application_id"))
+        application = db.get(Application, payload.application_id)
         if application is None:
             raise HTTPException(404, "Application not found")
         if application.status != "approved":
