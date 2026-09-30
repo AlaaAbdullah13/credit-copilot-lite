@@ -225,6 +225,29 @@ def test_authority_limit_rejects_and_does_not_persist_approval(api_client, token
         assert db.query(main.ApprovalRecord).count() == 0
 
 
+@pytest.mark.parametrize(
+    ("application_id", "requested_amount", "expected_status"),
+    [
+        ("API-limit-bypass", 300000, 403),
+        ("API-limit-exact", 250000, 200),
+        ("API-limit-over", 250001, 403),
+    ],
+)
+def test_approval_uses_stored_recommendation_not_client_amount(
+    api_client, tokens, application_id, requested_amount, expected_status
+):
+    client, _ = api_client
+    assess(client, tokens["loan"], application_id, requested_amount=requested_amount)
+    response = client.post(
+        "/approve",
+        json={"application_id": application_id, "amount": 100000},
+        headers=tokens["credit"],
+    )
+    assert response.status_code == expected_status
+    if expected_status == 403:
+        assert response.json()["error"] == "AuthorityLimitExceeded"
+
+
 def test_lifecycle_pending_to_approved_to_issued_stores_audit_fields(
     api_client, tokens
 ):

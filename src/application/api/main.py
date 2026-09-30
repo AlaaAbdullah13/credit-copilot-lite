@@ -208,6 +208,7 @@ def assess(payload: AssessRequest, user: dict = Depends(staff)):
             date_of_birth=normalized["date_of_birth"],
             application_date=normalized["application_date"],
             policy_edition=select_policy_edition(normalized["application_date"]),
+            recommended_amount=memo.recommended_amount,
             status="pending_approval",
             decision_reason=memo.decision,
         )
@@ -261,12 +262,10 @@ def _transition(payload: DecisionRequest, user: dict, decision: str):
             raise HTTPException(
                 409, "Only pending applications can be approved or rejected"
             )
-        amount = float(
-            payload.amount
-            if payload.amount is not None
-            else application.requested_amount
-        )
+        amount = application.recommended_amount
         if decision == "Approved":
+            if amount is None:
+                raise InvalidApplication("Application has no stored recommended amount")
             enforce_authority_limit(amount, actor.authority_limit)
         application.status = decision.lower()
         application.decision_reason = payload.comment
