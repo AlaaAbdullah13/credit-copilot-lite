@@ -151,9 +151,23 @@ def test_openapi_documents_bearer_auth_and_typed_login(api_client):
     assert schema["paths"]["/login"]["post"]["requestBody"]["content"][
         "application/json"
     ]["schema"]["$ref"].endswith("/LoginRequest")
+    assess_schema = schema["components"]["schemas"]["AssessRequest"]
+    assert "policy" not in assess_schema["properties"]
 
 
-def test_query_uses_retrieval_environment_configuration(api_client, tokens, monkeypatch):
+def test_assess_rejects_removed_client_policy_field(api_client, tokens):
+    client, _ = api_client
+    response = client.post(
+        "/assess",
+        json={"application": application("API-no-policy"), "policy": {"max_dbr": 1}},
+        headers=tokens["loan"],
+    )
+    assert response.status_code == 422
+
+
+def test_query_uses_retrieval_environment_configuration(
+    api_client, tokens, monkeypatch
+):
     client, main = api_client
     observed = {}
     monkeypatch.setenv("RETRIEVAL_MIN_SCORE", "0.61")
@@ -361,7 +375,9 @@ def test_reassessing_decided_application_conflicts_without_resetting_status(
     assess(client, tokens["loan"], "API-no-reset")
     assert (
         client.post(
-            "/approve", json={"application_id": "API-no-reset"}, headers=tokens["credit"]
+            "/approve",
+            json={"application_id": "API-no-reset"},
+            headers=tokens["credit"],
         ).status_code
         == 200
     )
@@ -407,7 +423,9 @@ def test_assessment_run_persists_pipeline_audit_data(api_client, tokens):
         assert run.tokens_consumed > 0
 
 
-def test_invalid_extraction_persists_stopped_pipeline_steps(api_client, tokens, monkeypatch):
+def test_invalid_extraction_persists_stopped_pipeline_steps(
+    api_client, tokens, monkeypatch
+):
     client, main = api_client
 
     class BrokenLLMAdapter(FakeLLMAdapter):

@@ -391,7 +391,6 @@ def required_approval_level(recommended_amount: float | None) -> str | None:
 
 def run_assessment(
     application: Mapping[str, Any],
-    policy: Mapping[str, Any] | None = None,
     *,
     llm: LLMProvider | None = None,
     store: ChromaAdapter | None = None,

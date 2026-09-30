@@ -39,6 +39,8 @@ class QueryResponse(BaseModel):
 
 
 class AssessRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     application: dict[str, Any] = Field(
         default_factory=dict,
         examples=[
@@ -53,7 +55,6 @@ class AssessRequest(BaseModel):
             }
         ],
     )
-    policy: dict[str, Any] = Field(default_factory=dict)
 
 
 class AssessResponse(BaseModel):
