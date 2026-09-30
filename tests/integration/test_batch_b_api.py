@@ -289,6 +289,22 @@ def test_lifecycle_pending_to_approved_to_issued_stores_audit_fields(
     )
 
 
+def test_declined_recommendation_cannot_be_approved(api_client, tokens):
+    client, _ = api_client
+    result = assess(
+        client,
+        tokens["loan"],
+        "API-s1-dbr",
+        requested_amount=300000,
+        other_monthly_installments=20000,
+    )
+    assert result["decision"] == "decline"
+    response = client.post(
+        "/approve", json={"application_id": "API-s1-dbr"}, headers=tokens["credit"]
+    )
+    assert response.status_code == 409
+
+
 @pytest.mark.parametrize(
     ("application_id", "overrides", "decision"),
     [

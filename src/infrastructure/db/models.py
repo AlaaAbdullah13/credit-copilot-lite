@@ -47,6 +47,7 @@ class Application(Base):
     application_date = Column(Date, nullable=False)
     policy_edition = Column(String, nullable=False)
     recommended_amount = Column(Float)
+    recommendation = Column(String)
     status = Column(String, nullable=False, default="pending_approval")
     decision_reason = Column(Text)
     created_at = Column(DateTime, nullable=False, server_default=func.now())

@@ -209,6 +209,7 @@ def assess(payload: AssessRequest, user: dict = Depends(staff)):
             application_date=normalized["application_date"],
             policy_edition=select_policy_edition(normalized["application_date"]),
             recommended_amount=memo.recommended_amount,
+            recommendation=memo.decision,
             status="pending_approval",
             decision_reason=memo.decision,
         )
@@ -261,6 +262,10 @@ def _transition(payload: DecisionRequest, user: dict, decision: str):
         if application.status != "pending_approval":
             raise HTTPException(
                 409, "Only pending applications can be approved or rejected"
+            )
+        if decision == "Approved" and application.recommendation != "approve":
+            raise HTTPException(
+                409, "Only applications recommended for approval can be approved"
             )
         amount = application.recommended_amount
         if decision == "Approved":
