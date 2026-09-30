@@ -28,7 +28,11 @@ from src.application.auth import (
     verify_password,
 )
 from src.application.pipeline import run_assessment
-from src.application.validation import load_application, select_policy_edition
+from src.application.validation import (
+    load_application,
+    normalize_policy_edition,
+    select_policy_edition,
+)
 from src.domain.exceptions import (
     AuthorityLimitExceeded,
     InvalidApplication,
@@ -177,7 +181,7 @@ def query(payload: QueryRequest, _: dict = Depends(staff)):
     return query_policy(
         payload.question,
         store=get_store(),
-        policy_edition=payload.policy_edition,
+        policy_edition=normalize_policy_edition(payload.policy_edition),
         threshold=threshold,
         k=top_k,
     )

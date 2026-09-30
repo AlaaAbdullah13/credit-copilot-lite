@@ -21,7 +21,7 @@ class QueryRequest(BaseModel):
         default=None,
         examples=["What is the maximum debt burden ratio in the 2025 credit policy?"],
     )
-    policy_edition: str | None = Field(default=None, examples=["2025"])
+    policy_edition: str | None = Field(default=None, examples=["CP-2025"])
 
 
 class PolicyCitation(BaseModel):

@@ -172,6 +172,36 @@ def test_query_uses_retrieval_environment_configuration(api_client, tokens, monk
     assert observed["k"] == 7
 
 
+@pytest.mark.parametrize("edition", ["2025", "cp-2025", "CP-2025"])
+def test_query_normalizes_policy_edition(api_client, tokens, monkeypatch, edition):
+    client, main = api_client
+    observed = {}
+
+    def query_stub(question, **kwargs):
+        observed.update(kwargs)
+        return {"answer": "ok", "citations": [], "reason": "ok"}
+
+    monkeypatch.setattr(main, "query_policy", query_stub)
+    response = client.post(
+        "/query",
+        json={"question": "minimum income", "policy_edition": edition},
+        headers=tokens["loan"],
+    )
+    assert response.status_code == 200
+    assert observed["policy_edition"] == "CP-2025"
+
+
+def test_query_unknown_policy_edition_has_named_4xx_error(api_client, tokens):
+    client, _ = api_client
+    response = client.post(
+        "/query",
+        json={"question": "minimum income", "policy_edition": "CP-2099"},
+        headers=tokens["loan"],
+    )
+    assert response.status_code == 404
+    assert response.json()["error"] == "PolicyEditionNotFound"
+
+
 def test_demo_seed_refreshes_passwords_and_login_rejects_old_password(
     api_client, monkeypatch
 ):

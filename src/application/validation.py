@@ -91,3 +91,15 @@ def select_policy_edition(application_date: Any) -> str:
 
 def select_policy_edition_for_date(application_date: Any) -> str:
     return select_policy_edition(application_date)
+
+
+def normalize_policy_edition(policy_edition: str | None) -> str | None:
+    """Normalize supported public edition inputs to trusted chunk metadata values."""
+    if policy_edition is None:
+        return None
+    normalized = policy_edition.strip().upper().removeprefix("CP-")
+    if normalized not in {"2024", "2025"}:
+        raise PolicyEditionNotFound(
+            f"Unknown policy edition {policy_edition!r}; expected CP-2024 or CP-2025"
+        )
+    return f"CP-{normalized}"
