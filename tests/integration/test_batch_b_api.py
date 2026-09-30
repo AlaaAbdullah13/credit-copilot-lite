@@ -305,6 +305,27 @@ def test_declined_recommendation_cannot_be_approved(api_client, tokens):
     assert response.status_code == 409
 
 
+def test_reassessing_decided_application_conflicts_without_resetting_status(
+    api_client, tokens
+):
+    client, main = api_client
+    assess(client, tokens["loan"], "API-no-reset")
+    assert (
+        client.post(
+            "/approve", json={"application_id": "API-no-reset"}, headers=tokens["credit"]
+        ).status_code
+        == 200
+    )
+    response = client.post(
+        "/assess",
+        json={"application": application("API-no-reset")},
+        headers=tokens["loan"],
+    )
+    assert response.status_code == 409
+    with main.SessionLocal() as db:
+        assert db.get(main.Application, "API-no-reset").status == "approved"
+
+
 @pytest.mark.parametrize(
     ("application_id", "overrides", "decision"),
     [

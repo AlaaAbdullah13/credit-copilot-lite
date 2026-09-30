@@ -189,15 +189,17 @@ def assess(payload: AssessRequest, user: dict = Depends(staff)):
         payload.application,
         load_application(payload.application),
     )
+    app_id = str(normalized.get("id") or normalized.get("application_id") or uuid.uuid4())
+    with SessionLocal() as db:
+        existing = db.get(Application, app_id)
+        if existing is not None and existing.status != "pending_approval":
+            raise HTTPException(409, "Decided applications cannot be reassessed")
     memo, request_id = (
         run_assessment(raw, payload.policy, store=get_store()),
         str(uuid.uuid4()),
     )
     with SessionLocal() as db:
         owner = db.query(User).filter(User.username == user["sub"]).one()
-        app_id = str(
-            normalized.get("id") or normalized.get("application_id") or uuid.uuid4()
-        )
         application = Application(
             id=app_id,
             owner_id=owner.id,
@@ -213,7 +215,11 @@ def assess(payload: AssessRequest, user: dict = Depends(staff)):
             status="pending_approval",
             decision_reason=memo.decision,
         )
-        db.merge(application)
+        if db.get(Application, app_id) is None:
+            db.add(application)
+        else:
+            # A pending reassessment refreshes only the pending record.
+            db.merge(application)
         run = AssessmentRun(
             application_id=app_id,
             request_id=request_id,
