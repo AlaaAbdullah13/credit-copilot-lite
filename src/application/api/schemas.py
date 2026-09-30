@@ -65,7 +65,7 @@ class AssessResponse(BaseModel):
     approval_required_from: str | None = None
     citations: list[dict[str, Any]] = Field(default_factory=list)
     raw_extraction: dict[str, Any] | None = None
-    run_id: int
+    run_id: str
     request_id: str
 
 

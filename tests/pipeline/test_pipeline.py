@@ -69,6 +69,11 @@ def test_invalid_llm_json_output():
         _base_application(), llm=BrokenLLMAdapter(), raise_on_error=False
     )
     assert fallback.decision == "refer to human"
+    assert fallback.raw_extraction["steps_executed"] == [
+        "validate",
+        "anonymize",
+        "extract",
+    ]
 
 
 def test_missing_obligations_cannot_lower_dbr_or_approve():

@@ -398,21 +398,27 @@ def run_assessment(
     raise_on_error: bool = False,
 ) -> CreditMemo:
     """Run the 8-step application assessment pipeline and return a credit memo."""
+    steps_executed = ["validate"]
     try:
         app = load_application(application)
+        steps_executed.append("anonymize")
         sanitized = anonymize_application(app)
         policy_edition = select_policy_edition(app["application_date"])
         provider = llm or create_llm_provider()
+        steps_executed.append("extract")
         extraction = extract_structured_data(
             sanitized, llm=provider, raise_on_error=True
         )
 
+        steps_executed.append("retrieve")
         citations = retrieve_policy_clauses(
             policy_edition,
             store=store or ChromaAdapter(embedding_provider=provider),
         )
+        steps_executed.append("rules")
         rule_results = evaluate_rules(sanitized, policy_edition, citations)
 
+        steps_executed.append("calculate")
         segment = (
             "payroll_transfer" if app.get("salary_transferred_to_delta") else "standard"
         )
@@ -441,8 +447,10 @@ def run_assessment(
             "policy_edition": f"CP-{policy_edition}",
         }
 
+        steps_executed.append("memo")
         memo_text = draft_credit_memo(provider, sanitized, calculations, citations)
 
+        steps_executed.append("recommend")
         recommendation, recommended_amount = derive_recommendation(
             rule_results, float(app["requested_amount"]), float(max_amount)
         )
@@ -456,6 +464,7 @@ def run_assessment(
                 "memo": memo_text,
                 "tokens_consumed": int(getattr(provider, "tokens_consumed", 0)),
                 "token_usage": dict(getattr(provider, "token_usage", {})),
+                "steps_executed": steps_executed,
             },
             decision=recommendation,
             status="pending_approval",
@@ -480,7 +489,7 @@ def run_assessment(
             ),
             calculations={},
             citations=[],
-            raw_extraction={"error": str(exc)},
+            raw_extraction={"error": str(exc), "steps_executed": steps_executed},
             decision="refer to human",
             status="pending_approval",
         )

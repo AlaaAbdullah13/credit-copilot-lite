@@ -358,6 +358,27 @@ def test_assessment_run_persists_pipeline_audit_data(api_client, tokens):
         assert run.tokens_consumed > 0
 
 
+def test_invalid_extraction_persists_stopped_pipeline_steps(api_client, tokens, monkeypatch):
+    client, main = api_client
+
+    class BrokenLLMAdapter(FakeLLMAdapter):
+        def complete(self, prompt, **kwargs):
+            return {"content": "{not valid json"}
+
+    monkeypatch.setattr(
+        main,
+        "run_assessment",
+        lambda application, **kwargs: run_assessment(
+            application, llm=BrokenLLMAdapter(), **kwargs
+        ),
+    )
+    result = assess(client, tokens["loan"], "API-invalid-extraction")
+    assert result["decision"] == "refer to human"
+    with main.SessionLocal() as db:
+        run = db.get(main.AssessmentRun, result["run_id"])
+        assert run.steps_executed == ["validate", "anonymize", "extract"]
+
+
 def test_populated_policy_store_yields_chunk_ids_and_rule_citations(tmp_path):
     """Step 5 must preserve store IDs and cite every deterministic rule."""
     store = ChromaAdapter(
