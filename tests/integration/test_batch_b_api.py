@@ -60,7 +60,8 @@ def api_client(tmp_path, monkeypatch):
         client.close()
 
 
-def test_upgrade_head_creates_all_four_workflow_tables(tmp_path):
+def test_upgrade_head_creates_all_four_workflow_tables(tmp_path, monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     database_url = f"sqlite:///{tmp_path / 'empty.db'}"
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
@@ -134,6 +135,17 @@ def test_login_uses_stored_role_not_role_claim(api_client):
         ).status_code
         == 403
     )
+
+
+def test_demo_seed_refreshes_passwords_and_login_rejects_old_password(
+    api_client, monkeypatch
+):
+    client, main = api_client
+    monkeypatch.setenv("LOAN_OFFICER_PASSWORD", "refreshed-loan-password")
+    main.seed_demo_users()
+
+    assert _login(client, "loan_officer", "refreshed-loan-password").status_code == 200
+    assert _login(client, "loan_officer", "loan-password").status_code == 401
 
 
 def test_wrong_password_is_unauthorized(api_client):

@@ -87,7 +87,7 @@ async def named_error(_: Request, exc: Exception):
 
 
 def seed_demo_users() -> None:
-    """Create the documented demo accounts from environment-supplied passwords."""
+    """Create or refresh the documented demo accounts from environment passwords."""
     accounts = (
         ("loan_officer", "loan_officer", "LOAN_OFFICER_PASSWORD", 0.0),
         (
@@ -97,13 +97,20 @@ def seed_demo_users() -> None:
             float(os.getenv("CREDIT_OFFICER_AUTHORITY_LIMIT", "250000")),
         ),
     )
+    passwords = {
+        password_variable: os.getenv(password_variable)
+        for _, _, password_variable, _ in accounts
+    }
+    missing = [name for name, password in passwords.items() if not password]
+    if missing:
+        raise RuntimeError(
+            "Required demo-user password environment variable(s) missing: "
+            + ", ".join(missing)
+        )
+
     with SessionLocal() as db:
         for username, role, password_variable, authority_limit in accounts:
-            password = os.getenv(password_variable)
-            if not password:
-                raise RuntimeError(
-                    f"{password_variable} is required to seed demo users"
-                )
+            password = passwords[password_variable]
             user = db.query(User).filter(User.username == username).one_or_none()
             if user is None:
                 db.add(
@@ -114,6 +121,8 @@ def seed_demo_users() -> None:
                         password_hash=hash_password(password),
                     )
                 )
+            elif not verify_password(password, user.password_hash):
+                user.password_hash = hash_password(password)
         db.commit()
 
 

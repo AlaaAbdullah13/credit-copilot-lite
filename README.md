@@ -55,6 +55,8 @@ print('Seeding complete.')
 
 Copy `.env.example` to `.env` and fill in the values you need.
 
+.env is loaded automatically; after changing demo passwords, recreate the DB or re-run seeding.
+
 | Variable | Description | Default |
 |---|---|---|
 | `LLM_PROVIDER` | `gemini` / `groq` / `ollama` / `fake` | `gemini` |
