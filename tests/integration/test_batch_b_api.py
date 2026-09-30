@@ -153,6 +153,25 @@ def test_openapi_documents_bearer_auth_and_typed_login(api_client):
     ]["schema"]["$ref"].endswith("/LoginRequest")
 
 
+def test_query_uses_retrieval_environment_configuration(api_client, tokens, monkeypatch):
+    client, main = api_client
+    observed = {}
+    monkeypatch.setenv("RETRIEVAL_MIN_SCORE", "0.61")
+    monkeypatch.setenv("RETRIEVAL_TOP_K", "7")
+
+    def query_stub(question, **kwargs):
+        observed.update(kwargs)
+        return {"answer": "ok", "citations": [], "reason": "ok"}
+
+    monkeypatch.setattr(main, "query_policy", query_stub)
+    response = client.post(
+        "/query", json={"question": "minimum income"}, headers=tokens["loan"]
+    )
+    assert response.status_code == 200
+    assert observed["threshold"] == 0.61
+    assert observed["k"] == 7
+
+
 def test_demo_seed_refreshes_passwords_and_login_rejects_old_password(
     api_client, monkeypatch
 ):

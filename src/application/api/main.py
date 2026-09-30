@@ -172,12 +172,14 @@ def ingest(_: dict = Depends(staff)):
 def query(payload: QueryRequest, _: dict = Depends(staff)):
     if not payload.question:
         raise InvalidApplication("question is required")
+    threshold = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.35"))
+    top_k = int(os.getenv("RETRIEVAL_TOP_K", "5"))
     return query_policy(
         payload.question,
         store=get_store(),
         policy_edition=payload.policy_edition,
-        threshold=0.40,
-        k=3,
+        threshold=threshold,
+        k=top_k,
     )
 
 
