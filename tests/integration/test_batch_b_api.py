@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -88,12 +89,41 @@ def tokens(api_client):
     }
 
 
+@pytest.fixture
+def pending_application(api_client):
+    _, main = api_client
+
+    def create(application_id, amount=200000, recommendation="approve"):
+        with main.SessionLocal() as db:
+            owner = db.query(main.User).filter_by(username="loan_officer").one()
+            db.add(
+                main.Application(
+                    id=application_id,
+                    owner_id=owner.id,
+                    requested_amount=amount,
+                    tenure_months=60,
+                    monthly_income=30000,
+                    other_monthly_installments=0,
+                    date_of_birth=date(1990, 1, 1),
+                    application_date=date(2025, 4, 3),
+                    policy_edition="2025",
+                    recommended_amount=amount,
+                    recommendation=recommendation,
+                    status="pending_approval",
+                )
+            )
+            db.commit()
+        return application_id
+
+    return create
+
+
 def test_protected_endpoints_enforce_authentication_and_roles(api_client, tokens):
     client, _ = api_client
     payloads = {
         "/ingest": {},
         "/query": {"question": "What is the minimum income?"},
-        "/assess": {"application": application("API-roles")},
+        "/assess": {"application_id": "APP-001"},
         "/approve": {"application_id": "missing"},
         "/reject": {"application_id": "missing"},
         "/issue": {"application_id": "missing"},
@@ -163,6 +193,30 @@ def test_assess_rejects_removed_client_policy_field(api_client, tokens):
         headers=tokens["loan"],
     )
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"application_id": "APP-001", "monthly_income": 999999},
+        {"application_id": "APP-001", "requested_amount": 1},
+        {"application_id": "APP-001", "application": {}},
+    ],
+)
+def test_assess_rejects_client_supplied_numbers(api_client, tokens, payload):
+    client, _ = api_client
+    assert (
+        client.post("/assess", json=payload, headers=tokens["loan"]).status_code == 422
+    )
+
+
+@pytest.mark.parametrize(
+    "payload", [{"application_id": "APP-999"}, {}, {"application_id": ""}]
+)
+def test_assess_rejects_unknown_missing_or_empty_pack_id(api_client, tokens, payload):
+    client, _ = api_client
+    response = client.post("/assess", json=payload, headers=tokens["loan"])
+    assert 400 <= response.status_code < 500
 
 
 def test_query_uses_retrieval_environment_configuration(
@@ -263,19 +317,21 @@ def application(application_id, **overrides):
     return data
 
 
-def assess(client, headers, application_id="API-001", **overrides):
+def assess(client, headers, application_id="APP-001"):
     response = client.post(
         "/assess",
-        json={"application": application(application_id, **overrides)},
+        json={"application_id": application_id},
         headers=headers,
     )
     assert response.status_code == 200, response.text
     return response.json()
 
 
-def test_authority_limit_rejects_and_does_not_persist_approval(api_client, tokens):
+def test_authority_limit_rejects_and_does_not_persist_approval(
+    api_client, tokens, pending_application
+):
     client, main = api_client
-    assess(client, tokens["loan"], "API-limit", requested_amount=300000)
+    pending_application("API-limit", 300000)
     response = client.post(
         "/approve",
         json={"application_id": "API-limit", "amount": 300000},
@@ -297,10 +353,15 @@ def test_authority_limit_rejects_and_does_not_persist_approval(api_client, token
     ],
 )
 def test_approval_uses_stored_recommendation_not_client_amount(
-    api_client, tokens, application_id, requested_amount, expected_status
+    api_client,
+    tokens,
+    pending_application,
+    application_id,
+    requested_amount,
+    expected_status,
 ):
     client, _ = api_client
-    assess(client, tokens["loan"], application_id, requested_amount=requested_amount)
+    pending_application(application_id, requested_amount)
     response = client.post(
         "/approve",
         json={"application_id": application_id, "amount": 100000},
@@ -312,10 +373,10 @@ def test_approval_uses_stored_recommendation_not_client_amount(
 
 
 def test_lifecycle_pending_to_approved_to_issued_stores_audit_fields(
-    api_client, tokens
+    api_client, tokens, pending_application
 ):
     client, main = api_client
-    assess(client, tokens["loan"], "API-life")
+    pending_application("API-life")
     assert (
         client.post(
             "/issue", json={"application_id": "API-life"}, headers=tokens["credit"]
@@ -330,6 +391,12 @@ def test_lifecycle_pending_to_approved_to_issued_stores_audit_fields(
     assert approved.json()["status"] == "approved"
     assert (
         client.post(
+            "/approve", json={"application_id": "API-life"}, headers=tokens["credit"]
+        ).status_code
+        == 409
+    )
+    assert (
+        client.post(
             "/issue", json={"application_id": "API-life"}, headers=tokens["credit"]
         ).json()["status"]
         == "issued"
@@ -337,7 +404,7 @@ def test_lifecycle_pending_to_approved_to_issued_stores_audit_fields(
     with main.SessionLocal() as db:
         record = db.query(main.ApprovalRecord).one()
         assert record.approver_id and record.created_at and record.comment == "verified"
-    assess(client, tokens["loan"], "API-rejected")
+    pending_application("API-rejected")
     assert (
         client.post(
             "/reject", json={"application_id": "API-rejected"}, headers=tokens["credit"]
@@ -352,18 +419,15 @@ def test_lifecycle_pending_to_approved_to_issued_stores_audit_fields(
     )
 
 
-def test_declined_recommendation_cannot_be_approved(api_client, tokens):
+@pytest.mark.parametrize("recommendation", ["decline", "refer to human"])
+def test_non_approvable_recommendation_cannot_be_approved(
+    api_client, tokens, pending_application, recommendation
+):
     client, _ = api_client
-    result = assess(
-        client,
-        tokens["loan"],
-        "API-s1-dbr",
-        requested_amount=300000,
-        other_monthly_installments=20000,
-    )
-    assert result["decision"] == "decline"
+    application_id = f"API-{recommendation.replace(' ', '-')}"
+    pending_application(application_id, recommendation=recommendation)
     response = client.post(
-        "/approve", json={"application_id": "API-s1-dbr"}, headers=tokens["credit"]
+        "/approve", json={"application_id": application_id}, headers=tokens["credit"]
     )
     assert response.status_code == 409
 
@@ -372,54 +436,71 @@ def test_reassessing_decided_application_conflicts_without_resetting_status(
     api_client, tokens
 ):
     client, main = api_client
-    assess(client, tokens["loan"], "API-no-reset")
-    assert (
-        client.post(
-            "/approve",
-            json={"application_id": "API-no-reset"},
-            headers=tokens["credit"],
-        ).status_code
-        == 200
-    )
+    assess(client, tokens["loan"], "APP-001")
+    with main.SessionLocal() as db:
+        db.get(main.Application, "APP-001").status = "approved"
+        db.commit()
     response = client.post(
         "/assess",
-        json={"application": application("API-no-reset")},
+        json={"application_id": "APP-001"},
         headers=tokens["loan"],
     )
     assert response.status_code == 409
     with main.SessionLocal() as db:
-        assert db.get(main.Application, "API-no-reset").status == "approved"
+        assert db.get(main.Application, "APP-001").status == "approved"
+
+
+def test_real_assessment_above_authority_limit_cannot_be_approved(api_client, tokens):
+    client, _ = api_client
+    assess(client, tokens["loan"], "APP-001")
+    response = client.post(
+        "/approve", json={"application_id": "APP-001"}, headers=tokens["credit"]
+    )
+    assert response.status_code == 403
+    assert response.json()["error"] == "AuthorityLimitExceeded"
 
 
 @pytest.mark.parametrize(
-    ("application_id", "overrides", "decision"),
+    ("application_id", "decision"),
     [
-        ("APP-001", {}, "approve"),
-        ("APP-002", {"monthly_income": 10000}, "decline"),
-        ("APP-003", {"date_of_birth": "1958-01-01"}, "decline"),
-        ("APP-005", {"bureau_score": 500}, "refer to human"),
+        ("APP-001", "approve"),
+        ("APP-002", "decline"),
+        ("APP-003", "decline"),
+        ("APP-004", "refer to human"),
+        ("APP-005", "refer to human"),
     ],
 )
 def test_real_application_pack_decisions_are_persisted(
-    api_client, tokens, application_id, overrides, decision
+    api_client, tokens, application_id, decision
 ):
-    client, _ = api_client
-    result = assess(client, tokens["loan"], application_id, **overrides)
+    client, main = api_client
+    result = assess(client, tokens["loan"], application_id)
     assert result["decision"] == decision
     assert result["status"] == "pending_approval"
     assert result["run_id"]
     assert "approval_required_from" in result
+    with main.SessionLocal() as db:
+        assert db.get(main.Application, application_id).recommendation == decision
+        assert (
+            db.get(main.AssessmentRun, result["run_id"]).application_id
+            == application_id
+        )
 
 
 def test_assessment_run_persists_pipeline_audit_data(api_client, tokens):
     client, main = api_client
-    result = assess(client, tokens["loan"], "API-audit", gender="female")
+    result = assess(client, tokens["loan"], "APP-001")
     with main.SessionLocal() as db:
         run = db.get(main.AssessmentRun, result["run_id"])
         assert run.request_id == result["request_id"]
         assert run.steps_executed and run.chunk_ids
         assert run.policy_edition == "2025"
-        assert run.removed_fields == ["gender"]
+        assert run.removed_fields == [
+            "gender",
+            "marital_status",
+            "nationality",
+            "religion",
+        ]
         assert run.tokens_consumed > 0
 
 
@@ -439,7 +520,7 @@ def test_invalid_extraction_persists_stopped_pipeline_steps(
             application, llm=BrokenLLMAdapter(), **kwargs
         ),
     )
-    result = assess(client, tokens["loan"], "API-invalid-extraction")
+    result = assess(client, tokens["loan"], "APP-001")
     assert result["decision"] == "refer to human"
     with main.SessionLocal() as db:
         run = db.get(main.AssessmentRun, result["run_id"])
