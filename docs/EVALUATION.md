@@ -24,7 +24,7 @@ Final result: **15/15 passed**
 | Q04 | Standard 37–60 month pricing | Annual rate 24 / 24.00 | PT-2025-01 returned annual rate 24.00 | PASS |
 | Q05 | Edition-specific DBR limit | 2024: 50%; 2025: 45%; answers differ | 2024 CP-4.1 returned 50%; 2025 C-2 returned 45% | PASS |
 | Q06 | Edition-specific maximum tenor | 2024: 60 months; 2025: 72 months; answers differ | Circular 2024/07 returned 60 months; Circular 2025/02 returned 72 months | PASS |
-| Q07 | APP-001 calculation | Instalment 8,630.39; DBR 42.10%; maximum eligible amount 382,000 | 8,630.39; 42.10%; 382,000 | PASS |
+| Q07 | APP-001 calculation | Instalment 8,630.39; DBR 42.10%; maximum eligible amount 330,000 under CP-2025 | 8,630.39; 42.10%; 330,000 | PASS |
 | Q08 | DBR boundary case | DBR less than or equal to 45.00% | DBR 44.59% | PASS |
 | Q09 | Zero-obligations calculation | Instalment 7,638.09 | Instalment 7,638.09 | PASS |
 | Q10 | 2025 DBR-fail scenario | Instalment 10,068.79; DBR 46.90%; maximum eligible amount 330,000 | 10,068.79; 46.90%; 330,000 | PASS |
@@ -47,4 +47,4 @@ The evaluator uses two retrieval thresholds against the shared policy store:
 - **Threshold calibration:** A single threshold either admitted unrelated policy content or excluded valid product-sheet and pricing chunks. Splitting strict refusal and lenient answer thresholds produced both reliable refusals and successful retrievals.
 - **Cross-edition Chroma ID collisions:** Circular clause IDs and PDF page IDs repeat across editions (for example, `C-1` and `page-2`). Source-derived storage IDs now prevent 2025 upserts from overwriting 2024 chunks, while metadata preserves the original clause and edition for citations and filtering.
 - **Edition-specific retrieval wording:** The 2024 DBR calculation clause initially ranked above the clause that states the percentage. Q05 now asks explicitly for the percentage of net monthly income, retrieving the 50% and 45% limit clauses.
-- **Calculation expectations:** Q09 was corrected to the deterministic reducing-balance result of 7,638.09. Maximum eligible amount uses `(monthly_income × max_dbr_percent / 100) - other_installments`; Q07 correctly uses the 50% APP-001 limit and Q10 correctly uses the 45% policy limit.
+- **Calculation expectations:** Q09 was corrected to the deterministic reducing-balance result of 7,638.09. Maximum eligible amount uses `(monthly_income × max_dbr_percent / 100) - other_installments`; APP-001 is dated April 2025, so CP-2025's active 45% limit yields 330,000. The previously recorded 382,000 uses the superseded 50% limit.

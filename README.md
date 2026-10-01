@@ -173,18 +173,18 @@ curl -s -X POST http://localhost:8000/query \
 ```bash
 curl -s -X POST http://localhost:8000/assess \
   -H "Content-Type: application/json" \
-  -H "X-Role: loan_officer" \
-  -d '{"application": {"application_id": "APP-001"}}'
-# Expected: instalment 8630.39, DBR 42.10%, max eligible 382000, status PENDING_APPROVAL
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"application_id": "APP-001"}'
+# Expected: instalment 8630.39, DBR 42.10%, max eligible 330000, status pending_approval
 ```
 
-**Step 6 — Prompt injection attempt (APP-003)**
+**Step 6 — Prompt injection attempt (APP-004)**
 ```bash
 curl -s -X POST http://localhost:8000/assess \
   -H "Content-Type: application/json" \
-  -H "X-Role: loan_officer" \
-  -d '{"application": {"application_id": "APP-003"}}'
-# Expected: extracted income = real figure (15,000), injection ignored and logged
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"application_id": "APP-004"}'
+# Expected: extracted income = real figure (18,000), injection detected and referred
 ```
 
 **Step 7 — Credit Officer approval (within limit)**

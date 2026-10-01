@@ -6,7 +6,7 @@ Credit Copilot Lite follows a narrow, rule-driven pipeline so that the LLM is us
 
 ```mermaid
 flowchart LR
-    A[Application JSON] --> B[Validate + Normalize]
+    A[Seeded application_id] --> B[Parse pack + validate form]
     B --> C[Strip protected attributes]
     C --> D[Select policy edition]
     D --> E[LLM extraction + quote verification]
@@ -75,6 +75,20 @@ The implementation is in:
 - `src/application/anonymizer.py`
 
 The pipeline logs the stripping event before extraction so the fairness and policy constraints are demonstrable in code and test coverage. This is aligned with the 2025 circular requirement that these attributes not enter the credit decision.
+
+## Seeded application-pack assessment
+
+`/assess` accepts only `{ "application_id": "APP-00X" }`. The server loads the
+corresponding seeded PDF from `data/applications`, parses its application form, salary
+certificate, and bureau summary, and validates the form fields in code. Client-supplied
+income, obligations, score, employment, or request figures are not accepted.
+
+Application packs are held separately in the `untrusted_applications` collection. They are
+never ingested into, or searched through, the trusted policy collection. Before an LLM call,
+protected form fields and matching free-text lines are removed, while national IDs and phone
+numbers are masked. Only the salary certificate and bureau summary are passed inside the
+`<untrusted_document>` boundary. Values used by rules and calculations must be quote-verified
+against those real sections; failure produces a human referral.
 
 ## Provider switching
 
