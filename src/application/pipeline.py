@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from src.application.anonymizer import anonymize_application
+from src.application.anonymizer import sanitize_for_llm
 from src.application.policy_data import (
     load_annual_rate,
     load_credit_policy_limits,
@@ -29,6 +29,7 @@ from src.domain.calculations import (
 )
 from src.domain.exceptions import (
     InvalidLLMOutput,
+    LLMProviderError,
     PolicyEditionNotFound,
     PolicySourceUnavailable,
     PricingNotFound,
@@ -52,10 +53,6 @@ class ExtractionField(BaseModel):
 
 
 class ApplicationExtraction(BaseModel):
-    requested_amount: ExtractionField
-    tenure_months: ExtractionField
-    date_of_birth: ExtractionField
-    application_date: ExtractionField
     net_monthly_income: ExtractionField
     existing_monthly_obligations: ExtractionField
     employment_start_date: ExtractionField
@@ -64,6 +61,7 @@ class ApplicationExtraction(BaseModel):
 
 def _to_json_object(value: Any) -> dict[str, Any]:
     if isinstance(value, str):
+        value = _strip_json_code_fence(value)
         try:
             parsed = json.loads(value)
         except json.JSONDecodeError as exc:
@@ -78,8 +76,23 @@ def _to_json_object(value: Any) -> dict[str, Any]:
     raise InvalidLLMOutput("LLM response was not a JSON object")
 
 
+def _strip_json_code_fence(text: str) -> str:
+    """Accept JSON fenced by an otherwise well-formed LLM response."""
+    text = text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    return text.removesuffix("```").strip()
+
+
 def _normalize_text(value: Any) -> str:
     return " ".join(re.sub(r"[^a-zA-Z0-9]+", " ", str(value).lower()).split())
+
+
+def _normalize_quoted_text(value: Any) -> str:
+    """Normalize layout only; quoted source text must otherwise match exactly."""
+    return " ".join(str(value).split())
 
 
 def _verify_value(value: Any, quoted_text: Any) -> None:
@@ -109,10 +122,6 @@ def _validate_extraction_payload(
     payload: dict[str, Any], documents: Mapping[str, str]
 ) -> dict[str, Any]:
     for field_name in [
-        "requested_amount",
-        "tenure_months",
-        "date_of_birth",
-        "application_date",
         "net_monthly_income",
         "existing_monthly_obligations",
         "employment_start_date",
@@ -125,9 +134,9 @@ def _validate_extraction_payload(
             raise InvalidLLMOutput(f"Field {field_name!r} is not an object")
         _verify_value(field.get("value"), field.get("quoted_text"))
         source = field.get("source_document")
-        if not source or _normalize_text(field["quoted_text"]) not in _normalize_text(
-            documents.get(source, "")
-        ):
+        if not source or _normalize_quoted_text(
+            field["quoted_text"]
+        ) not in _normalize_quoted_text(documents.get(source, "")):
             raise UnverifiedExtraction(
                 "Quoted extraction text was not found in the cited document"
             )
@@ -148,9 +157,13 @@ def extract_structured_data(
 ) -> ApplicationExtraction:
     """Use the configured LLM to extract a validated application payload."""
     provider = llm or create_llm_provider()
-    prompt = load_prompt("extract").replace(
-        "{{untrusted_document}}", "\n".join(application.get("documents", {}).values())
-    )
+    documents = application.get("documents", {})
+    evidence = "\n".join(
+        text
+        for name, text in documents.items()
+        if name in {"salary-certificate", "credit-bureau-summary"}
+    ) or "\n".join(documents.values())
+    prompt = load_prompt("extract").replace("{{untrusted_document}}", evidence)
     response = provider.complete(prompt, application=dict(application))
     payload = (
         response.get("json")
@@ -161,7 +174,7 @@ def extract_structured_data(
         text = response.get("content") if isinstance(response, dict) else response
         payload = _to_json_object(text)
 
-    validated = _validate_extraction_payload(payload, application.get("documents", {}))
+    validated = _validate_extraction_payload(payload, documents)
     return ApplicationExtraction.model_validate(validated)
 
 
@@ -401,7 +414,7 @@ def run_assessment(
     try:
         app = load_application(application)
         steps_executed.append("anonymize")
-        sanitized = anonymize_application(app)
+        sanitized, removed_fields = sanitize_for_llm(app)
         policy_edition = select_policy_edition(app["application_date"])
         provider = llm or create_llm_provider()
         steps_executed.append("extract")
@@ -415,7 +428,50 @@ def run_assessment(
             store=store or ChromaAdapter(embedding_provider=provider),
         )
         steps_executed.append("rules")
-        rule_results = evaluate_rules(sanitized, policy_edition, citations)
+        verified = dict(sanitized)
+        verified["monthly_income"] = float(
+            str(extraction.net_monthly_income.value).replace(",", "")
+        )
+        verified["other_monthly_installments"] = float(
+            str(extraction.existing_monthly_obligations.value).replace(",", "")
+        )
+        verified["bureau_score"] = int(extraction.bureau_score.value)
+        from datetime import datetime, timezone
+
+        employment_start = None
+        for date_format in ("%Y-%m-%d", "%d %B %Y"):
+            try:
+                employment_start = (
+                    datetime.strptime(
+                        str(extraction.employment_start_date.value), date_format
+                    )
+                    .replace(tzinfo=timezone.utc)
+                    .date()
+                )
+                break
+            except ValueError:
+                pass
+        if employment_start is None:
+            raise UnverifiedExtraction("Employment start date is not a valid date")
+        verified["months_employed"] = (
+            (verified["application_date"].year - employment_start.year) * 12
+            + verified["application_date"].month
+            - employment_start.month
+        )
+        rule_results = evaluate_rules(verified, policy_edition, citations)
+        injection = re.search(
+            r"ignore (?:all |previous |prior )?instructions|approve this application",
+            "\n".join(app.get("documents", {}).values()),
+            re.IGNORECASE,
+        )
+        if injection:
+            rule_results.append(
+                {
+                    "rule": "prompt_injection_detected",
+                    "status": "refer",
+                    "citation": {"clause_id": "untrusted-document"},
+                }
+            )
 
         steps_executed.append("calculate")
         segment = (
@@ -426,15 +482,15 @@ def run_assessment(
             app["requested_amount"], annual_rate, app["tenure_months"]
         )
         dbr = calculate_dbr(
-            emi, app.get("monthly_income", 0), app.get("other_monthly_installments", 0)
+            emi, verified["monthly_income"], verified["other_monthly_installments"]
         )
         max_amount = calculate_max_eligible_amount(
             emi,
             annual_rate,
             app["tenure_months"],
-            monthly_income=app.get("monthly_income", 0),
+            monthly_income=verified["monthly_income"],
             max_dbr=load_credit_policy_limits(policy_edition)["max_dbr"],
-            other_installments=app.get("other_monthly_installments", 0),
+            other_installments=verified["other_monthly_installments"],
         )
         calculations = {
             "requested_amount": float(app["requested_amount"]),
@@ -447,7 +503,7 @@ def run_assessment(
         }
 
         steps_executed.append("memo")
-        memo_text = draft_credit_memo(provider, sanitized, calculations, citations)
+        memo_text = draft_credit_memo(provider, verified, calculations, citations)
 
         steps_executed.append("recommend")
         recommendation, recommended_amount = derive_recommendation(
@@ -464,6 +520,8 @@ def run_assessment(
                 "tokens_consumed": int(getattr(provider, "tokens_consumed", 0)),
                 "token_usage": dict(getattr(provider, "token_usage", {})),
                 "steps_executed": steps_executed,
+                "removed_fields": removed_fields,
+                "injection_detected": bool(injection),
             },
             decision=recommendation,
             status="pending_approval",
@@ -473,6 +531,7 @@ def run_assessment(
         return memo
     except (
         InvalidLLMOutput,
+        LLMProviderError,
         PolicyEditionNotFound,
         PolicySourceUnavailable,
         PricingNotFound,
