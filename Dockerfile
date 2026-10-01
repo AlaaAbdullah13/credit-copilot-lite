@@ -21,12 +21,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
 COPY prompts/ ./prompts/
-COPY data/policy/ ./data/policy/
+COPY data/ ./data/
+COPY alembic/ ./alembic/
+COPY alembic.ini ./alembic.ini
 COPY .env.example ./.env.example
 
 # Create directories for runtime data
 
-RUN mkdir -p data/chroma_db data/applications
+RUN mkdir -p data/chroma_db
 
 # Expose port
 

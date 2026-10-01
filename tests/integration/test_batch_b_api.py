@@ -36,6 +36,7 @@ def api_client(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTH_TOKEN_SECRET", "test-token-secret")
     monkeypatch.setenv("LOAN_OFFICER_PASSWORD", "loan-password")
     monkeypatch.setenv("CREDIT_OFFICER_PASSWORD", "credit-password")
+    monkeypatch.setenv("SENIOR_CREDIT_OFFICER_PASSWORD", "senior-password")
     monkeypatch.setenv("LLM_PROVIDER", "fake")
 
     config = Config(str(ROOT / "alembic.ini"))
@@ -81,11 +82,13 @@ def _login(client, username, password, **extra):
 @pytest.fixture
 def tokens(api_client):
     client, _ = api_client
-    loan = _login(client, "loan_officer", "loan-password").json()["token"]
-    credit = _login(client, "credit_officer", "credit-password").json()["token"]
+    loan = _login(client, "loan1", "loan-password").json()["token"]
+    credit = _login(client, "credit1", "credit-password").json()["token"]
+    senior = _login(client, "senior1", "senior-password").json()["token"]
     return {
         "loan": {"Authorization": f"Bearer {loan}"},
         "credit": {"Authorization": f"Bearer {credit}"},
+        "senior": {"Authorization": f"Bearer {senior}"},
     }
 
 
@@ -95,7 +98,7 @@ def pending_application(api_client):
 
     def create(application_id, amount=200000, recommendation="approve"):
         with main.SessionLocal() as db:
-            owner = db.query(main.User).filter_by(username="loan_officer").one()
+            owner = db.query(main.User).filter_by(username="loan1").one()
             db.add(
                 main.Application(
                     id=application_id,
@@ -154,7 +157,7 @@ def test_protected_endpoints_enforce_authentication_and_roles(api_client, tokens
 
 def test_login_uses_stored_role_not_role_claim(api_client):
     client, _ = api_client
-    response = _login(client, "loan_officer", "loan-password", role="credit_officer")
+    response = _login(client, "loan1", "loan-password", role="credit_officer")
     assert response.status_code == 200
     assert response.json()["role"] == "loan_officer"
     assert (
@@ -277,13 +280,13 @@ def test_demo_seed_refreshes_passwords_and_login_rejects_old_password(
     monkeypatch.setenv("LOAN_OFFICER_PASSWORD", "refreshed-loan-password")
     main.seed_demo_users()
 
-    assert _login(client, "loan_officer", "refreshed-loan-password").status_code == 200
-    assert _login(client, "loan_officer", "loan-password").status_code == 401
+    assert _login(client, "loan1", "refreshed-loan-password").status_code == 200
+    assert _login(client, "loan1", "loan-password").status_code == 401
 
 
 def test_wrong_password_is_unauthorized(api_client):
     client, _ = api_client
-    assert _login(client, "loan_officer", "wrong").status_code == 401
+    assert _login(client, "loan1", "wrong").status_code == 401
 
 
 def application(application_id, **overrides):
@@ -458,6 +461,20 @@ def test_real_assessment_above_authority_limit_cannot_be_approved(api_client, to
     )
     assert response.status_code == 403
     assert response.json()["error"] == "AuthorityLimitExceeded"
+
+
+def test_senior_credit_officer_can_approve_above_credit1_limit(
+    api_client, tokens, pending_application
+):
+    client, _ = api_client
+    pending_application("API-senior", 300000)
+    response = client.post(
+        "/approve",
+        json={"application_id": "API-senior", "comment": "Senior review complete."},
+        headers=tokens["senior"],
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "approved"
 
 
 @pytest.mark.parametrize(

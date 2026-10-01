@@ -1,6 +1,14 @@
-version: "3.9"
-
 services:
+  init:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./credit_copilot.db:/app/credit_copilot.db
+    command: >
+      sh -c "alembic upgrade head && python -m src.cli seed-users"
+
   api:
     build: .
     container_name: credit_copilot_api
@@ -11,6 +19,9 @@ services:
     volumes:
       - ./data:/app/data
       - ./credit_copilot.db:/app/credit_copilot.db
+    depends_on:
+      init:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -26,18 +37,10 @@ services:
       - .env
     volumes:
       - ./data:/app/data
-    command: >
-      python -c "
-      import sys; sys.path.insert(0, '.');
-      from src.infrastructure.ingestion.pipeline import ingest_documents;
-      runs = [
-      (['data/policy/circular-2024-07.md', 'data/policy/credit-policy-2024.pdf'], '2024'),
-      (['data/policy/circular-2025-02.md', 'data/policy/credit-policy-2025.pdf'], '2025'),
-      (['data/policy/product-sheet-personal-loan.md', 'data/policy/pricing-table.csv', 'data/policy/credit-procedures-manual.pdf'], None),
-      ];
-      [print(ingest_documents(f, policy_edition=e)) for f, e in runs]
-      "
+      - ./credit_copilot.db:/app/credit_copilot.db
+    command: python -m src.cli seed-policy
     profiles:
       - seed
     depends_on:
-      - api
+      init:
+        condition: service_completed_successfully

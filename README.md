@@ -19,7 +19,8 @@ cp .env.example .env          # add your API key (or set LLM_PROVIDER=fake)
 docker compose up             # starts the API on http://localhost:8000
 ```
 
-Seed the policy documents (first run only):
+`docker compose up` runs Alembic migrations and seeds the three demo users.
+Seed policy documents on the first run:
 
 ```bash
 docker compose run --rm seed
@@ -30,23 +31,18 @@ docker compose run --rm seed
 ```bash
 git clone https://github.com/AlaaAbdullah13/credit-copilot-lite.git
 cd credit-copilot-lite
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env          # add your API key (or set LLM_PROVIDER=fake)
+alembic upgrade head
+python3 -m src.cli seed-users
 uvicorn src.application.api.main:app --reload --port 8000
 ```
 
 Seed policy documents:
 
 ```bash
-python -c "
-import sys; sys.path.insert(0, '.')
-from src.infrastructure.ingestion.pipeline import ingest_documents
-ingest_documents(['data/policy/circular-2024-07.md', 'data/policy/credit-policy-2024.pdf'], policy_edition='2024')
-ingest_documents(['data/policy/circular-2025-02.md', 'data/policy/credit-policy-2025.pdf'], policy_edition='2025')
-ingest_documents(['data/policy/product-sheet-personal-loan.md', 'data/policy/pricing-table.csv', 'data/policy/credit-procedures-manual.pdf'], policy_edition=None)
-print('Seeding complete.')
-"
+python3 -m src.cli seed-policy
 ```
 
 ---
@@ -67,6 +63,9 @@ Copy `.env.example` to `.env` and fill in the values you need.
 | `DATABASE_URL` | SQLAlchemy database URL | `sqlite:///./credit_copilot.db` |
 | `CHROMA_DB_DIR` | ChromaDB persistence directory | `./data/chroma_db` |
 | `CREDIT_OFFICER_AUTHORITY_LIMIT` | Max EGP a credit officer may approve alone | `250000` |
+| `LOAN_OFFICER_PASSWORD` | Password for `loan1` | — |
+| `CREDIT_OFFICER_PASSWORD` | Password for `credit1` | — |
+| `SENIOR_CREDIT_OFFICER_PASSWORD` | Password for `senior1` | — |
 | `LOG_LEVEL` | Logging level | `INFO` |
 
 > **Never commit `.env` to the repository.** It is listed in `.gitignore`.
@@ -86,23 +85,23 @@ Copy `.env.example` to `.env` and fill in the values you need.
 
 ## Demo Accounts
 
-Authentication uses the `X-Role` request header (demo only — not for production).
+Authenticate using `POST /login`; protected endpoints require its Bearer token.
 
-| Account | Role | X-Role header value | Authority limit |
-|---|---|---|---|
-| ahmed | Loan Officer | `loan_officer` | Can submit, cannot approve |
-| sara | Credit Officer | `credit_officer` | Up to EGP 250,000 |
-| omar | Senior Credit Officer | `credit_officer` | Raise limit via `CREDIT_OFFICER_AUTHORITY_LIMIT` |
+| Account | Role | Authority limit |
+|---|---|---:|
+| `loan1` | Loan Officer | EGP 0; cannot approve |
+| `credit1` | Credit Officer | EGP 250,000 |
+| `senior1` | Credit Officer | EGP 1,000,000 |
 
 **Login example:**
 
 ```bash
 curl -s -X POST http://localhost:8000/login \
   -H "Content-Type: application/json" \
-  -d '{"username": "ahmed", "role": "loan_officer"}'
+  -d '{"username": "loan1", "password": "YOUR_LOAN_OFFICER_PASSWORD"}'
 ```
 
-Use the returned role value as the `X-Role` header in subsequent requests.
+Use the returned `token` as `Authorization: Bearer <token>` in subsequent requests.
 
 ---
 
@@ -116,13 +115,13 @@ pytest tests/ -v
 ruff check .
 
 # Evaluation harness (15 test cases)
-python src/cli/evaluate.py
+LLM_PROVIDER=fake python3 -m src.cli evaluate
 ```
 
 Expected results:
-- `pytest`: 14/14 passed
+- `pytest`: all collected tests passed
 - `ruff`: no errors
-- `evaluate.py`: 15/15 passed, 100% across all categories
+- `python -m src.cli evaluate`: 15/15 passed, 100% across all categories
 
 ---
 
@@ -135,7 +134,7 @@ testing retrieval:
 
 ```bash
 rm -rf data/chroma_db
-python3 src/cli/calibrate_retrieval.py
+python3 -m src.cli calibrate
 ```
 
 Then start the API or call `POST /ingest`; it recreates `data/chroma_db` from
@@ -147,85 +146,71 @@ Run these steps in order against a running server (`http://localhost:8000/docs` 
 **Step 1 — Ingest policy documents**
 ```bash
 docker compose run --rm seed
-# Expected: 35 chunks ingested, 0 failed
+# or locally: python3 -m src.cli seed-policy
+# Expected: chunks ingested, 0 failed
 ```
 
-**Step 2 — Ask a policy question (cited answer)**
+**Step 2 — Login as `loan1`**
 ```bash
-curl -s -X POST http://localhost:8000/query \
+LOAN_TOKEN=$(curl -s -X POST http://localhost:8000/login \
   -H "Content-Type: application/json" \
-  -H "X-Role: loan_officer" \
-  -d '{"question": "What is the maximum debt burden ratio under the 2025 policy?"}'
-# Expected: answer "45%" with citation to CP-2025 clause CP-4.1
+  -d '{"username":"loan1","password":"YOUR_LOAN_OFFICER_PASSWORD"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
 ```
 
-**Step 3 — Ask an out-of-corpus question (correct refusal)**
+**Step 3 — Ask a cited question, then an out-of-corpus question**
 ```bash
-curl -s -X POST http://localhost:8000/query \
-  -H "Content-Type: application/json" \
-  -H "X-Role: loan_officer" \
-  -d '{"question": "What is the bank policy on cryptocurrency-backed loans?"}'
-# Expected: {"answer": "The documents do not contain enough information.", "reason": "no_chunk_above_threshold"}
+curl -s -X POST http://localhost:8000/query -H "Authorization: Bearer $LOAN_TOKEN" -H "Content-Type: application/json" -d '{"question":"What percentage of net monthly income is the maximum debt burden ratio?","policy_edition":"CP-2025"}'
+curl -s -X POST http://localhost:8000/query -H "Authorization: Bearer $LOAN_TOKEN" -H "Content-Type: application/json" -d '{"question":"What is the bank policy on cryptocurrency-backed loans?"}'
 ```
 
-**Step 4 — Same question, different policy editions**
+**Step 4 — Show the edition difference**
 ```bash
-curl -s -X POST http://localhost:8000/query \
-  -H "Content-Type: application/json" \
-  -H "X-Role: loan_officer" \
-  -d '{"question": "What is the maximum DBR?", "policy_edition": "2024"}'
-# Expected: 50%
-
-curl -s -X POST http://localhost:8000/query \
-  -H "Content-Type: application/json" \
-  -H "X-Role: loan_officer" \
-  -d '{"question": "What is the maximum DBR?", "policy_edition": "2025"}'
-# Expected: 45%
+curl -s -X POST http://localhost:8000/query -H "Authorization: Bearer $LOAN_TOKEN" -H "Content-Type: application/json" -d '{"question":"What is the maximum loan tenor permitted by the regulator?","policy_edition":"CP-2024"}'
+curl -s -X POST http://localhost:8000/query -H "Authorization: Bearer $LOAN_TOKEN" -H "Content-Type: application/json" -d '{"question":"What is the maximum loan tenor permitted by the regulator?","policy_edition":"CP-2025"}'
 ```
 
-**Step 5 — Assess application APP-001**
+**Step 5 — Assess APP-001**
 ```bash
 curl -s -X POST http://localhost:8000/assess \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $LOAN_TOKEN" \
   -d '{"application_id": "APP-001"}'
-# Expected: instalment 8630.39, DBR 42.10%, max eligible 330000, status pending_approval
+# Expected: instalment 8630.39, DBR 42.10%, max eligible 382000, status pending_approval
 ```
 
 **Step 6 — Prompt injection attempt (APP-004)**
 ```bash
 curl -s -X POST http://localhost:8000/assess \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
+  -H "Authorization: Bearer $LOAN_TOKEN" \
   -d '{"application_id": "APP-004"}'
 # Expected: extracted income = real figure (18,000), injection detected and referred
 ```
 
-**Step 7 — Credit Officer approval (within limit)**
+**Step 7 — `loan1` cannot approve (403)**
 ```bash
 curl -s -X POST http://localhost:8000/approve \
   -H "Content-Type: application/json" \
-  -H "X-Role: credit_officer" \
-  -d '{"amount": 200000, "comment": "Documents verified."}'
-# Expected: {"status": "approved", "amount": 200000}
+  -H "Authorization: Bearer $LOAN_TOKEN" \
+  -d '{"application_id":"APP-001","comment":"Attempted by loan officer."}'
+# Expected: 403
 ```
 
-**Step 8 — Approval above authority limit (server rejects)**
+**Step 8 — `credit1` exceeds authority (403)**
 ```bash
+TOKEN=$(curl -s -X POST http://localhost:8000/login -H "Content-Type: application/json" -d '{"username":"credit1","password":"YOUR_CREDIT_OFFICER_PASSWORD"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
 curl -s -X POST http://localhost:8000/approve \
   -H "Content-Type: application/json" \
-  -H "X-Role: credit_officer" \
-  -d '{"amount": 300000, "comment": "Approved."}'
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"application_id":"APP-001","comment":"Authority check."}'
 # Expected: 403 "Amount EGP 300,000 exceeds authority limit EGP 250,000."
 ```
 
-**Step 9 — Loan Officer cannot approve (wrong role)**
+**Step 9 — `senior1` approves and issues**
 ```bash
-curl -s -X POST http://localhost:8000/approve \
-  -H "Content-Type: application/json" \
-  -H "X-Role: loan_officer" \
-  -d '{"amount": 100000}'
-# Expected: 403 "Insufficient role"
+SENIOR_TOKEN=$(curl -s -X POST http://localhost:8000/login -H "Content-Type: application/json" -d '{"username":"senior1","password":"YOUR_SENIOR_CREDIT_OFFICER_PASSWORD"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+curl -s -X POST http://localhost:8000/approve -H "Authorization: Bearer $SENIOR_TOKEN" -H "Content-Type: application/json" -d '{"application_id":"APP-001","comment":"Documents verified; approved."}'
+curl -s -X POST http://localhost:8000/issue -H "Authorization: Bearer $SENIOR_TOKEN" -H "Content-Type: application/json" -d '{"application_id":"APP-001"}'
 ```
 
 ---
