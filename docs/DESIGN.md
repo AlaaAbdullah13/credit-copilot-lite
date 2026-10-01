@@ -1,150 +1,62 @@
-# Design Notes
+# Architecture Design
 
-## Overview
+## System boundary and layer ownership
 
-Credit Copilot Lite follows a narrow, rule-driven pipeline so that the LLM is used for drafting and extraction only, while the financial decisions are computed by deterministic Python functions in the domain layer.
+Credit Copilot Lite is a deliberately constrained credit-assessment system. The design uses clean, layered architecture to make a useful distinction enforceable: domain decisions are deterministic; infrastructure integrations are replaceable; an LLM is an untrusted drafting and extraction dependency rather than a decision-maker.
 
 ```mermaid
 flowchart LR
-    A[Seeded application_id] --> B[Parse pack + validate form]
-    B --> C[Strip protected attributes]
-    C --> D[Select policy edition]
-    D --> E[LLM extraction + quote verification]
-    E --> F[Policy retrieval + citations]
-    F --> G[Rule engine (Section 2.3)]
-    G --> H[Deterministic calculations]
-    H --> I[Memo draft from LLM]
-    I --> J[Pending recommendation]
-    J --> K[Human approval and issuance]
+    Client[Browser / API client] --> API[API layer\nFastAPI routes + RBAC]
+    API --> App[Application layer\nassessment pipeline]
+    App --> Domain[Domain layer\npure rules + calculations]
+    App --> Infra[Infrastructure layer]
+    Infra --> DB[(SQLAlchemy database)]
+    Infra --> Trusted[(Trusted policy vector store)]
+    Infra --> LLM[LLMProvider adapters]
+    Applicant[Applicant packs] --> Untrusted[(Untrusted application store)]
+    Untrusted --> App
+    Domain --> Decision[Pending recommendation]
+    Decision --> Human[Credit Officer\napprove / reject / issue]
 ```
 
-## Chunking and retrieval strategy
+The dependency direction is intentional. `src/domain` imports neither an LLM SDK nor a vector database client. `src/application` orchestrates use cases and is the only layer that coordinates extraction, retrieval, rule evaluation, and memo construction. `src/infrastructure` owns provider adapters, persistence, ingestion, and retrieval mechanics. The FastAPI layer validates transport concerns and applies authentication; it does not calculate affordability.
 
-The document store uses clause/section chunks, not arbitrary fixed-length chunks. Each chunk keeps metadata such as `source_file`, `page`, `clause_id`, `policy_edition`, and `effective_dates`.
+## Assessment pipeline and trust boundaries
 
-This is implemented in:
-- `src/infrastructure/ingestion/chunker.py`
-- `src/infrastructure/ingestion/pipeline.py`
-- `src/infrastructure/vector_store/chroma_adapter.py`
+The application pipeline receives a seeded application identifier, loads its pack, validates required form fields, removes protected attributes, selects the policy edition, verifies extracted evidence, retrieves policy clauses, evaluates rules, calculates affordability, and creates a recommendation. Applications remain `pending_approval`; a human Credit Officer alone can transition them to `approved` or `rejected`, followed by `issued` only after approval.
 
-Rationale:
-- policy text changes by circular and clause, so chunking by section preserves legal meaning;
-- retrieval can filter by policy edition and cite the exact source clause;
-- the system can explain why a rule passed or failed.
+Policy material and applicant material never share a retrieval collection. The trusted collection contains official policy sources only. Applicant packs are stored as untrusted content and cannot answer a policy question. Before any external LLM call, National IDs and telephone numbers are masked, and applicant text is bounded with `<untrusted_document>` tags so it cannot be interpreted as system instruction.
 
-## Policy edition selection
+## Clause-based chunking
 
-The policy edition is chosen in code, not by the LLM. The selection logic is in:
-- `src/application/validation.py`
+`src/infrastructure/ingestion/chunker.py` creates semantic chunks aligned to policy sections and clauses (for example, CP-4.1 or PM-2), retaining source file, page, clause ID, policy edition, and effective-date metadata. This is materially safer than fixed-length token splitting:
 
-The exact function is:
-- `select_policy_edition(application_date)`
+- a clause preserves its qualifiers, thresholds, exceptions, and citation context;
+- edition filtering selects the applicable source before an answer is drafted;
+- stable clause metadata provides an auditable citation and prevents a plausible adjacent paragraph from being represented as the governing rule.
 
-It returns:
-- `2025` for applications on or after `2025-03-01`
-- `2024` for applications on or after `2024-08-01`
-- otherwise raises `PolicyEditionNotFound`
+Naive windows are appropriate for broad semantic discovery but are weak for regulated policy text: they can split a condition from its exception or blend adjacent editions. The ingestion pipeline therefore favors semantic boundaries and source-derived storage IDs.
 
-This keeps the rule source deterministic and prevents an LLM from inventing or guessing the active circular.
+## Deterministic policy edition selection
 
-## How arithmetic stays separate from the LLM
+`select_policy_edition()` in `src/application/validation.py` maps the submitted application date to the active policy without an LLM call. Applications dated on or after 2025-03-01 use `CP-2025`; applications from 2024-08-01 through 2025-02-28 use `CP-2024`; earlier dates raise `PolicyEditionNotFound`.
 
-All financial calculations live in the domain layer:
-- `src/domain/calculations.py`
+This is executable policy control, not prompt guidance. It eliminates a class of silent failures in which a model selects a more favorable or more familiar edition.
 
-Examples include:
-- `calculate_installment(...)`
-- `calculate_dbr(...)`
-- `calculate_max_eligible_amount(...)`
-- `age_at_maturity_check(...)`
+## Arithmetic isolation
 
-The pipeline writes the computed values into the memo prompt and inserts them by code. The LLM does not do numerical reasoning; it only drafts a memo text around numbers already computed by the application code.
+All financial values are computed in `src/domain/calculations.py`. The reducing-balance monthly installment is calculated as `P × r / (1 - (1 + r)^-n)`; DBR combines verified obligations and that computed installment; maximum eligible amount is derived from the permitted payment capacity and floored to the policy granularity. Product limits and age-at-maturity checks are also deterministic.
 
-This rule is enforced by two patterns:
-1. `src/domain/calculations.py` contains the only numeric logic.
-2. `src/application/pipeline.py` supplies precomputed values (`emi`, `dbr`, `max_amount`) to the memo prompt before calling the provider.
+The LLM never receives responsibility for arithmetic. `src/application/pipeline.py` supplies code-derived values to the memo stage, and the provider can only explain those supplied values. This prevents rounding drift, fabricated rates, and calculations that cannot be reproduced from the application record.
 
-## Protected-attribute handling
+## Fairness and protected attributes
 
-Protected attributes are stripped before any LLM call:
-- `gender`
-- `marital_status`
-- `religion`
-- `nationality`
+`src/application/anonymizer.py` removes `gender`, `marital_status`, `religion`, and `nationality` before an LLM receives application data. The removal is pure Python, occurs before extraction, and is recorded by the pipeline. The `test_fairness` coverage submits otherwise identical applications with different protected attributes and asserts identical calculations and recommendation output. The guardrail applies both to structured form data and the LLM input boundary.
 
-The implementation is in:
-- `src/application/anonymizer.py`
+## Provider adapters
 
-The pipeline logs the stripping event before extraction so the fairness and policy constraints are demonstrable in code and test coverage. This is aligned with the 2025 circular requirement that these attributes not enter the credit decision.
+The provider seam is `LLMProvider` in `src/infrastructure/llm/base.py`. To add a provider, implement that interface in a new adapter, load prompts through `prompt_loader.py` rather than embedding prompt text, register the adapter in `provider_factory.py`, and add the provider-specific environment variables to `.env.example`. Set `LLM_PROVIDER` to the registered provider name; use `fake` for offline deterministic tests. Gemini and Groq are existing examples.
 
-## Seeded application-pack assessment
+## Honest engineering cuts
 
-`/assess` accepts only `{ "application_id": "APP-00X" }`. The server loads the
-corresponding seeded PDF from `data/applications`, parses its application form, salary
-certificate, and bureau summary, and validates the form fields in code. Client-supplied
-income, obligations, score, employment, or request figures are not accepted.
-
-Application packs are held separately in the `untrusted_applications` collection. They are
-never ingested into, or searched through, the trusted policy collection. Before an LLM call,
-protected form fields and matching free-text lines are removed, while national IDs and phone
-numbers are masked. Only the salary certificate and bureau summary are passed inside the
-`<untrusted_document>` boundary. Values used by rules and calculations must be quote-verified
-against those real sections; failure produces a human referral.
-
-## Provider switching
-
-The provider is configured through environment variables in `.env`:
-
-- `LLM_PROVIDER`
-- `GEMINI_API_KEY`
-- `GROQ_API_KEY`
-
-The switch points are:
-- `.env` for runtime selection
-- `src/infrastructure/llm/provider_factory.py` for provider selection logic
-- `src/infrastructure/llm/gemini_adapter.py` for the Gemini adapter
-- `src/infrastructure/llm/groq_adapter.py` for the Groq adapter
-- `src/infrastructure/llm/fake_adapter.py` for offline deterministic testing
-
-To switch providers:
-1. Edit `.env` and set `LLM_PROVIDER=gemini` or `LLM_PROVIDER=groq`.
-2. Ensure the matching API key is present.
-3. Leave the code paths unchanged, because the pipeline resolves the provider through `create_llm_provider()`.
-
-The prompts are not embedded in Python source. They are loaded from the filesystem by:
-- `src/infrastructure/llm/prompt_loader.py`
-- `prompts/extract.txt`
-- `prompts/memo.txt`
-
-## Approval and authority controls
-
-The workflow records applications in `pending_approval`; only a user with the
-`credit_officer` role can approve or reject them. The server loads the stored
-recommended amount and enforces the approver's per-user authority limit, so a
-client cannot bypass the limit by changing a request body.
-
-The idempotent seed command (`python3 -m src.cli.seed_users`) creates three
-demo accounts from environment-provided passwords:
-
-- `loan1`: Loan Officer, EGP 0 authority; may query and assess but receives
-  HTTP 403 on approval actions.
-- `credit1`: Credit Officer, EGP 250,000 authority; receives a named
-  `AuthorityLimitExceeded` HTTP 403 above that amount.
-- `senior1`: Credit Officer, EGP 1,000,000 authority. “Senior” is an
-  authority attribute, not a third role.
-
-Approval records persist the approver, timestamp, decision, comment, and
-amount. The server permits `Pending → Approved → Issued` and
-`Pending → Rejected`; issuance cannot occur before approval.
-
-## Honest cuts and future work
-
-What is intentionally kept intentionally small for this phase:
-- no production-grade prompt routing or tool-calling orchestration;
-- the UI is intentionally minimal; the REST API is the primary demo surface;
-- no multi-provider retries or cost-tracking.
-
-What would be added next with more time:
-- per-provider retry/backoff and token accounting;
-- richer evaluation harness for policy question sets and refusal-quality checks;
-- a more advanced memo generator with explicit long-form explanation and citations.
+The implementation intentionally uses standard retrieval and a fixed assessment pipeline rather than autonomous multi-agent or graph-agent orchestration. This keeps the execution path auditable and testable for a regulated demonstration. It does not yet provide production-grade provider failover, background ingestion jobs, a full document-management UI, or a long-lived evaluation telemetry service. Those are operational enhancements, not substitutes for the deterministic decision controls already in place.

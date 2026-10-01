@@ -57,12 +57,21 @@ Copy `.env.example` to `.env` and fill in the values you need.
 |---|---|---|
 | `LLM_PROVIDER` | `gemini` / `groq` / `ollama` / `fake` | `gemini` |
 | `GEMINI_API_KEY` | Gemini API key (if `LLM_PROVIDER=gemini`) | — |
+| `GEMINI_MODEL` | Gemini generation model | `gemini-3.8-flash` |
+| `GEMINI_EMBEDDING_MODEL` | Gemini embedding model | `gemini-embedding-001` |
+| `GEMINI_EMBEDDING_DIM` | Embedding vector dimension | `768` |
 | `GROQ_API_KEY` | Groq API key (if `LLM_PROVIDER=groq`) | — |
+| `GROQ_MODEL` | Groq generation model | `llama-3.3-70b-versatile` |
 | `OLLAMA_BASE_URL` | Local Ollama server URL | `http://localhost:11434` |
-| `EMBEDDING_MODEL_NAME` | Sentence-transformer model name | `all-MiniLM-L6-v2` |
 | `DATABASE_URL` | SQLAlchemy database URL | `sqlite:///./credit_copilot.db` |
+| `VECTOR_DB_TYPE` | Vector store implementation selector | `chroma` |
 | `CHROMA_DB_DIR` | ChromaDB persistence directory | `./data/chroma_db` |
+| `RETRIEVAL_TOP_K` | Maximum policy chunks returned | `5` |
+| `RETRIEVAL_MIN_SCORE` | Minimum retrieval relevance score | `0.5664` |
+| `MAX_UPLOAD_MB` | Maximum accepted upload size | `5` |
 | `CREDIT_OFFICER_AUTHORITY_LIMIT` | Max EGP a credit officer may approve alone | `250000` |
+| `AUTH_TOKEN_SECRET` | JWT signing secret | — |
+| `AUTH_TOKEN_EXPIRE_MINUTES` | Bearer token lifetime | `60` |
 | `LOAN_OFFICER_PASSWORD` | Password for `loan1` | — |
 | `CREDIT_OFFICER_PASSWORD` | Password for `credit1` | — |
 | `SENIOR_CREDIT_OFFICER_PASSWORD` | Password for `senior1` | — |
@@ -87,11 +96,11 @@ Copy `.env.example` to `.env` and fill in the values you need.
 
 Authenticate using `POST /login`; protected endpoints require its Bearer token.
 
-| Account | Role | Authority limit |
-|---|---|---:|
-| `loan1` | Loan Officer | EGP 0; cannot approve |
-| `credit1` | Credit Officer | EGP 250,000 |
-| `senior1` | Credit Officer | EGP 1,000,000 |
+| Account | Role | Permitted actions | Authority limit |
+|---|---|---|---:|
+| `loan1` | `LOAN_OFFICER` | Submit assessment and ask policy questions; cannot approve, reject, or issue | EGP 0 |
+| `credit1` | `CREDIT_OFFICER` | Approve, reject, and issue within assigned authority | EGP 250,000 |
+| `senior1` | `CREDIT_OFFICER` | Approve, reject, and issue within assigned authority | EGP 1,000,000 |
 
 **Login example:**
 
@@ -219,13 +228,21 @@ curl -s -X POST http://localhost:8000/issue -H "Authorization: Bearer $SENIOR_TO
 
 The following data is sent to the external LLM provider (Gemini / Groq):
 
-- **Policy Q&A:** retrieved policy document chunks (text only, no applicant data)
-- **Step 4 extraction:** applicant salary certificate and bureau report text, with national ID numbers and phone numbers masked before sending
-- **Step 7 memo drafting:** rule results and calculation outputs (no raw applicant text)
+- **Policy Q&A:** retrieved, relevant policy chunks only; applicant data is not part of policy retrieval.
+- **Step 4 extraction:** only the sanitized salary certificate and bureau-report text needed for verification, after national IDs and phone numbers are masked.
+- **Step 7 memo drafting:** trusted rule outcomes and deterministic calculation outputs; no raw applicant document is included.
 
 Applicant documents are always wrapped in `<untrusted_document>` tags and clearly separated from system instructions to prevent prompt injection.
 
-No API keys, passwords, or raw applicant PDFs are sent to the LLM provider.
+The following remain local: raw application PDFs, full National IDs, phone numbers, protected attributes, credentials, database records, and the financial arithmetic itself. Installments, DBR, age-at-maturity, and eligible amount are calculated by pure Python before any memo call. No API keys or passwords are sent to the LLM provider.
+
+## Demo Video
+
+[Demo Video Link - To be inserted after recording]
+
+## Documentation Viewer
+
+With the API running, open [http://localhost:8000/documentation](http://localhost:8000/documentation) to browse the README, architecture design, evaluation evidence, and engineering ownership log in the DELTA web interface.
 
 ---
 

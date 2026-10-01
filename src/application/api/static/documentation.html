@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Engineering Documentation | DELTA Credit Copilot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Source+Code+Pro:wght@500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root { --canvas:#f5f3f0; --surface:#fff; --ink:#242329; --muted:#6f6b75; --primary:#3d3048; --accent:#766080; --lavender:#e9e1ec; --border:#e4e0e5; }
+    * { box-sizing:border-box; } body { margin:0; background:var(--canvas); color:var(--ink); font-family:"Plus Jakarta Sans",sans-serif; }
+    .shell { display:grid; grid-template-columns:280px minmax(0,1fr); min-height:100vh; }
+    aside { background:var(--primary); color:#fff; padding:28px 20px; } .brand { display:flex; align-items:center; gap:12px; margin-bottom:38px; }
+    .brand img { width:44px; border-radius:9px; } .brand strong { display:block; letter-spacing:.14em; } .brand span { color:#d4cbd9; font-size:.78rem; }
+    .eyebrow { color:#c9becf; font-size:.7rem; font-weight:700; letter-spacing:.12em; margin:0 0 12px; } nav { display:grid; gap:7px; }
+    nav button { background:transparent; border:0; border-radius:10px; color:#d4cbd9; cursor:pointer; font:600 .86rem inherit; padding:12px; text-align:left; } nav button:hover, nav button[aria-current="page"] { background:rgba(233,225,236,.18); color:#fff; }
+    .back { border-top:1px solid rgba(255,255,255,.15); color:#d4cbd9; display:block; font-size:.8rem; margin-top:32px; padding-top:20px; text-decoration:none; }
+    main { margin:0 auto; max-width:1120px; padding:42px clamp(22px,5vw,70px) 70px; width:100%; } header { border-bottom:1px solid var(--border); margin-bottom:28px; padding-bottom:24px; }
+    h1 { color:var(--primary); font-size:clamp(1.7rem,4vw,2.4rem); margin:0 0 8px; } header p { color:var(--muted); margin:0; }
+    article { background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:0 4px 18px rgba(61,48,72,.04); padding:clamp(22px,4vw,48px); }
+    article h1, article h2, article h3 { color:var(--primary); margin-top:1.7em; } article h1:first-child { margin-top:0; } article h2 { border-bottom:1px solid var(--border); font-size:1.35rem; padding-bottom:.5rem; } article h3 { font-size:1.05rem; }
+    article p, article li { line-height:1.72; } article a { color:var(--accent); } article code { background:var(--lavender); border-radius:4px; font-family:"Source Code Pro",monospace; font-size:.85em; padding:.12em .32em; }
+    article pre { background:#29242e; border-radius:10px; color:#f6eff8; overflow:auto; padding:18px; } article pre code { background:transparent; padding:0; } article table { border-collapse:collapse; display:block; max-width:100%; overflow:auto; } article th { background:var(--lavender); } article td, article th { border:1px solid var(--border); padding:10px; text-align:left; } article blockquote { border-left:4px solid var(--accent); color:var(--muted); margin:1rem 0; padding-left:1rem; }
+    .status { color:var(--muted); padding:20px 0; } @media (max-width:760px) { .shell { display:block; } aside { padding:18px; } .brand { margin-bottom:16px; } nav { display:flex; overflow-x:auto; } nav button { white-space:nowrap; } .back { display:none; } main { padding:28px 16px 45px; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><img src="/logo.png" alt="DELTA logo"><div><strong>DELTA</strong><span>Credit Copilot</span></div></div>
+      <p class="eyebrow">ENGINEERING DOCUMENTS</p>
+      <nav aria-label="Documentation sections">
+        <button data-document="README.md" aria-current="page">Project guide</button>
+        <button data-document="DESIGN.md">Architecture design</button>
+        <button data-document="EVALUATION.md">Evaluation results</button>
+        <button data-document="AI-USAGE-LOG.md">Engineering ownership</button>
+      </nav>
+      <a class="back" href="/">← Return to workspace</a>
+    </aside>
+    <main>
+      <header><h1 id="title">Project guide</h1><p>Credit Copilot Lite · implementation, controls, and verification evidence.</p></header>
+      <article id="content" aria-live="polite"><p class="status">Loading documentation…</p></article>
+    </main>
+  </div>
+  <script>
+    const content = document.querySelector('#content'); const title = document.querySelector('#title');
+    const labels = { 'README.md':'Project guide', 'DESIGN.md':'Architecture design', 'EVALUATION.md':'Evaluation results', 'AI-USAGE-LOG.md':'Engineering ownership' };
+    async function loadDocument(name) {
+      title.textContent = labels[name]; content.innerHTML = '<p class="status">Loading documentation…</p>';
+      try { const response = await fetch(`/documentation/content/${encodeURIComponent(name)}`); if (!response.ok) throw new Error('Unable to load documentation'); content.innerHTML = marked.parse(await response.text()); }
+      catch (error) { content.innerHTML = `<p class="status">${error.message}</p>`; }
+      document.querySelectorAll('[data-document]').forEach((button) => button.setAttribute('aria-current', button.dataset.document === name ? 'page' : 'false'));
+    }
+    document.querySelectorAll('[data-document]').forEach((button) => button.addEventListener('click', () => loadDocument(button.dataset.document)));
+    loadDocument('README.md');
+  </script>
+</body>
+</html>
