@@ -1,6 +1,14 @@
-version: "3.9"
-
 services:
+  init:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./credit_copilot.db:/app/credit_copilot.db
+    command: >
+      sh -c "alembic upgrade head && python -m src.cli.seed_users"
+
   api:
     build: .
     container_name: credit_copilot_api
@@ -11,6 +19,9 @@ services:
     volumes:
       - ./data:/app/data
       - ./credit_copilot.db:/app/credit_copilot.db
+    depends_on:
+      init:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -26,6 +37,7 @@ services:
       - .env
     volumes:
       - ./data:/app/data
+      - ./credit_copilot.db:/app/credit_copilot.db
     command: >
       python -c "
       import sys; sys.path.insert(0, '.');
@@ -40,4 +52,5 @@ services:
     profiles:
       - seed
     depends_on:
-      - api
+      init:
+        condition: service_completed_successfully

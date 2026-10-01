@@ -15,6 +15,7 @@ flowchart LR
     G --> H[Deterministic calculations]
     H --> I[Memo draft from LLM]
     I --> J[Pending recommendation]
+    J --> K[Human approval and issuance]
 ```
 
 ## Chunking and retrieval strategy
@@ -115,16 +116,35 @@ The prompts are not embedded in Python source. They are loaded from the filesyst
 - `prompts/extract.txt`
 - `prompts/memo.txt`
 
+## Approval and authority controls
+
+The workflow records applications in `pending_approval`; only a user with the
+`credit_officer` role can approve or reject them. The server loads the stored
+recommended amount and enforces the approver's per-user authority limit, so a
+client cannot bypass the limit by changing a request body.
+
+The idempotent seed command (`python3 -m src.cli.seed_users`) creates three
+demo accounts from environment-provided passwords:
+
+- `loan1`: Loan Officer, EGP 0 authority; may query and assess but receives
+  HTTP 403 on approval actions.
+- `credit1`: Credit Officer, EGP 250,000 authority; receives a named
+  `AuthorityLimitExceeded` HTTP 403 above that amount.
+- `senior1`: Credit Officer, EGP 1,000,000 authority. “Senior” is an
+  authority attribute, not a third role.
+
+Approval records persist the approver, timestamp, decision, comment, and
+amount. The server permits `Pending → Approved → Issued` and
+`Pending → Rejected`; issuance cannot occur before approval.
+
 ## Honest cuts and future work
 
 What is intentionally kept intentionally small for this phase:
 - no production-grade prompt routing or tool-calling orchestration;
-- no web frontend or approval UI;
-- no persistence layer for assessment history beyond the in-memory pipeline behavior;
+- the UI is intentionally minimal; the REST API is the primary demo surface;
 - no multi-provider retries or cost-tracking.
 
 What would be added next with more time:
 - per-provider retry/backoff and token accounting;
-- structured approval workflow with database-backed records;
 - richer evaluation harness for policy question sets and refusal-quality checks;
 - a more advanced memo generator with explicit long-form explanation and citations.
