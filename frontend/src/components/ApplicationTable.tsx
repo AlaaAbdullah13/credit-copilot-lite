@@ -1,6 +1,62 @@
 import { useNavigate } from "react-router-dom";
 import { StatusBadge } from "./ui";
-import type { Application } from "../types";
-export const applications: Application[] = [
- {id:"APP-001", applicant:"Mariam Hassan", status:"Pending", income:"22,000 EGP", obligations:"2,100 EGP", amount:200000, tenor:"48 mo.", bureau:735, dbr:"42.10%"}, {id:"APP-002", applicant:"Omar Adel", status:"Approved", income:"36,000 EGP", obligations:"3,200 EGP", amount:180000, tenor:"36 mo.", bureau:792, dbr:"31.20%"}, {id:"APP-003", applicant:"Nour Khaled", status:"Refer", income:"15,000 EGP", obligations:"1,500 EGP", amount:150000, tenor:"60 mo.", bureau:684, dbr:"46.50%"}, {id:"APP-004", applicant:"Youssef Ali", status:"Rejected", income:"12,500 EGP", obligations:"4,700 EGP", amount:300000, tenor:"60 mo.", bureau:610, dbr:"58.80%"}, {id:"APP-005", applicant:"Salma Tarek", status:"Pending", income:"28,000 EGP", obligations:"0 EGP", amount:250000, tenor:"48 mo.", bureau:751, dbr:"39.40%"}];
-export default function ApplicationTable({ rows = applications }: { rows?: Application[] }) { const navigate = useNavigate(); return <div className="overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead className="border-b border-white/10 text-xs uppercase tracking-wider text-muted"><tr><th className="p-3">Application</th><th className="p-3">Applicant</th><th className="p-3">Requested</th><th className="p-3">DBR</th><th className="p-3">Status</th></tr></thead><tbody>{rows.map(a => <tr onClick={() => navigate(`/applications/${a.id}`)} key={a.id} className="cursor-pointer border-b border-white/5 transition hover:bg-white/[.03]"><td className="p-3 font-semibold text-accent">{a.id}</td><td className="p-3">{a.applicant}</td><td className="p-3">{a.amount.toLocaleString()} EGP</td><td className="p-3">{a.dbr}</td><td className="p-3"><StatusBadge status={a.status}/></td></tr>)}</tbody></table></div>; }
+import type { AssessResponse } from "../types";
+
+function fmtMoney(n?: number) {
+  if (n == null || Number.isNaN(n)) return "—";
+  return `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })} EGP`;
+}
+
+function fmtPct(n?: number) {
+  if (n == null || Number.isNaN(n)) return "—";
+  return `${n.toFixed(2)}%`;
+}
+
+function decisionLabel(app: AssessResponse) {
+  if (app.status && app.status !== "pending_approval") return app.status;
+  return app.decision || app.status || "pending_approval";
+}
+
+export default function ApplicationTable({ rows }: { rows: AssessResponse[] }) {
+  const navigate = useNavigate();
+
+  if (!rows.length) {
+    return null;
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[700px] text-left text-sm">
+        <thead className="border-b border-border text-xs font-semibold uppercase tracking-wider text-muted">
+          <tr>
+            <th className="p-3 font-semibold">Application</th>
+            <th className="p-3 font-semibold">Decision</th>
+            <th className="p-3 font-semibold">Requested</th>
+            <th className="p-3 font-semibold">DBR</th>
+            <th className="p-3 font-semibold">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((a) => {
+            const id = a.application_id || "—";
+            return (
+              <tr
+                key={id}
+                onClick={() => id !== "—" && navigate(`/applications/${id}`)}
+                className="cursor-pointer border-b border-border transition duration-150 hover:bg-lavender/40"
+              >
+                <td className="p-3 font-semibold text-accent">{id}</td>
+                <td className="p-3 capitalize text-ink">{a.decision || "—"}</td>
+                <td className="p-3 text-ink">{fmtMoney(a.calculations?.requested_amount as number | undefined)}</td>
+                <td className="p-3 text-ink">{fmtPct(a.calculations?.dbr as number | undefined)}</td>
+                <td className="p-3">
+                  <StatusBadge status={decisionLabel(a)} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
