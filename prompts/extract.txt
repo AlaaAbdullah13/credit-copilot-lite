@@ -21,5 +21,12 @@ For each field, return an object with:
 - source_section
 - quoted_text
 
-The quoted_text field MUST be an exact, word-for-word, case-sensitive substring copied directly from the source text. Do not paraphrase or alter punctuation.
-Verify that every value appears literally in the corresponding quoted_text string.
+Available document_keys: {{document_keys}}
+You MUST set source_document strictly to one of the provided document keys (for
+example, "salary-certificate", "application-form", or "credit-bureau-summary").
+
+CRITICAL: The quoted_text field MUST be an exact, continuous copy-paste substring from the provided document. Do NOT summarize, rephrase, or modify punctuation or whitespace.
+Verify that every value is supported by the corresponding quoted_text string; preserve
+the document's number formatting in quoted_text.
+For dates, you may normalize value to YYYY-MM-DD, but quoted_text MUST remain the
+exact raw date substring from the document (for example, "since 1 September 2019").
