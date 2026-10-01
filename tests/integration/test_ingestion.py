@@ -54,7 +54,10 @@ def test_ingestion_and_query_return_citations(tmp_path):
     assert answer["reason"] == "ok"
     assert answer["citations"]
     assert "45%" in answer["answer"] or "45" in answer["answer"]
-    assert answer["citations"][0]["policy_edition"] == "CP-2025"
+    # assert answer["citations"][0]["policy_edition"] == "CP-2025"
+    first = answer["citations"][0]
+    assert first["source_file"] == "data/policy/circular-2025-02.md"
+    assert first["policy_edition"] == "Circular 2025/02"
 
 
 def test_reingestion_skips_unchanged_policy_and_application_chunks(tmp_path):
@@ -114,7 +117,10 @@ def test_query_returns_no_chunk_above_threshold_when_score_is_low(tmp_path):
 
     assert answer["reason"] == "no_chunk_above_threshold"
     assert answer["citations"] == []
-    assert answer["answer"] == "The documents do not contain enough information."
+    assert (
+        answer["answer"]
+        == "The documents do not contain enough information to answer this question."
+    )
 
 
 def test_policy_pdfs_are_chunked_by_clause_with_required_metadata():
@@ -124,6 +130,19 @@ def test_policy_pdfs_are_chunked_by_clause_with_required_metadata():
     assert {"CP-3.3", "CP-4.1", "CP-4.3"} <= clause_ids
     dbr = next(section for section in sections if section["id"] == "CP-4.1")
     assert dbr["page"] == 2
+
+
+def test_cp13_comparison_table_keeps_its_header_and_own_metadata():
+    sections = parse_document("data/policy/credit-policy-2025.pdf")
+    table = next(section for section in sections if section["id"] == "CP-13")
+    assert table["page"] == 3
+    assert "2024 edition" in table["text"]
+    assert "2025 edition" in table["text"]
+    assert "Maximum DBR 50%" in table["text"]
+    assert not any(
+        section["id"] in {"CP-3.3", "CP-4.1"} and section.get("page") == 3
+        for section in sections
+    )
 
 
 def test_real_corpus_answers_are_edition_scoped_and_cited(tmp_path):

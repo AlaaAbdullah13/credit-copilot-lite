@@ -5,6 +5,7 @@ import logging
 import os
 import re
 from collections.abc import Mapping
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -43,6 +44,12 @@ from src.infrastructure.llm.provider_factory import create_llm_provider
 from src.infrastructure.vector_store.chroma_adapter import ChromaAdapter
 
 logger = logging.getLogger(__name__)
+
+DATE_EXTRACTION_FIELDS = {
+    "date_of_birth",
+    "application_date",
+    "employment_start_date",
+}
 
 
 class ExtractionField(BaseModel):
@@ -95,7 +102,73 @@ def _normalize_quoted_text(value: Any) -> str:
     return " ".join(str(value).split())
 
 
-def _verify_value(value: Any, quoted_text: Any) -> None:
+def _normalize_document_key(value: Any) -> str:
+    """Resolve human-readable LLM source labels to stable document keys."""
+    # Treat display labels ("Salary Certificate") and slug keys
+    # ("salary-certificate") as the same source before quote verification.
+    return re.sub(r"[^a-z0-9]+", "-", str(value).strip().lower()).strip("-")
+
+
+def _document_for_source(documents: Mapping[str, str], source: Any) -> str | None:
+    normalized_source = _normalize_document_key(source)
+    for key, document_text in documents.items():
+        if _normalize_document_key(key) == normalized_source:
+            return document_text
+    return None
+
+
+def _numeric_value(value: Any) -> Decimal | None:
+    """Canonicalize a numeric extraction without weakening textual verification."""
+    if isinstance(value, bool):
+        return None
+    try:
+        return Decimal(re.sub(r"[,\s]", "", str(value)))
+    except (ArithmeticError, ValueError):
+        return None
+
+
+def _parse_extracted_date(value: Any) -> date | None:
+    """Parse supported date renderings without accepting arbitrary text as a date."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str):
+        return None
+
+    for date_format in ("%Y-%m-%d", "%d %B %Y", "%d %b %Y", "%d/%m/%Y"):
+        try:
+            return (
+                datetime.strptime(value.strip(), date_format)
+                .replace(tzinfo=timezone.utc)
+                .date()
+            )
+        except ValueError:
+            continue
+    return None
+
+
+def _dates_are_equivalent(value: Any, quoted_text: Any) -> bool:
+    """Accept an ISO extraction when its raw document quote expresses the same date."""
+    extracted_date = _parse_extracted_date(value)
+    if extracted_date is None or not isinstance(quoted_text, str):
+        return False
+
+    date_candidates = re.findall(
+        r"\b(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}/\d{1,2}/\d{4}|"
+        r"\d{1,2}\s+(?:January|February|March|April|May|June|July|August|"
+        r"September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|"
+        r"Sept|Oct|Nov|Dec)\s+\d{4})\b",
+        quoted_text,
+        flags=re.IGNORECASE,
+    )
+    return any(
+        _parse_extracted_date(candidate) == extracted_date
+        for candidate in date_candidates
+    )
+
+
+def _verify_value(field_name: str, value: Any, quoted_text: Any) -> None:
     if quoted_text is None:
         raise UnverifiedExtraction("Missing quoted_text for extraction")
 
@@ -105,6 +178,11 @@ def _verify_value(value: Any, quoted_text: Any) -> None:
     if not normalized_value or normalized_value in normalized_quote:
         return
 
+    if field_name in DATE_EXTRACTION_FIELDS and _dates_are_equivalent(
+        value, quoted_text
+    ):
+        return
+
     # Accept simple numeric/string variants in the quote even when formatting differs.
     for candidate in {
         str(value),
@@ -112,6 +190,13 @@ def _verify_value(value: Any, quoted_text: Any) -> None:
     }:
         if candidate and _normalize_text(candidate) in normalized_quote:
             return
+
+    numeric_value = _numeric_value(value)
+    quoted_numbers = re.findall(r"(?<![\w.])[+-]?\d[\d, ]*(?:\.\d+)?", str(quoted_text))
+    if numeric_value is not None and any(
+        _numeric_value(candidate) == numeric_value for candidate in quoted_numbers
+    ):
+        return
 
     raise UnverifiedExtraction(
         f"Extracted value {value!r} was not found verbatim in quoted_text {quoted_text!r}"
@@ -132,11 +217,11 @@ def _validate_extraction_payload(
         field = payload[field_name]
         if not isinstance(field, dict):
             raise InvalidLLMOutput(f"Field {field_name!r} is not an object")
-        _verify_value(field.get("value"), field.get("quoted_text"))
-        source = field.get("source_document")
-        if not source or _normalize_quoted_text(
+        _verify_value(field_name, field.get("value"), field.get("quoted_text"))
+        source_document = _document_for_source(documents, field.get("source_document"))
+        if source_document is None or _normalize_quoted_text(
             field["quoted_text"]
-        ) not in _normalize_quoted_text(documents.get(source, "")):
+        ) not in _normalize_quoted_text(source_document):
             raise UnverifiedExtraction(
                 "Quoted extraction text was not found in the cited document"
             )
@@ -163,7 +248,11 @@ def extract_structured_data(
         for name, text in documents.items()
         if name in {"salary-certificate", "credit-bureau-summary"}
     ) or "\n".join(documents.values())
-    prompt = load_prompt("extract").replace("{{untrusted_document}}", evidence)
+    prompt = (
+        load_prompt("extract")
+        .replace("{{document_keys}}", ", ".join(documents))
+        .replace("{{untrusted_document}}", evidence)
+    )
     response = provider.complete(prompt, application=dict(application))
     payload = (
         response.get("json")
@@ -259,7 +348,7 @@ def evaluate_rules(
         {
             "rule": "product_limits",
             "status": "pass" if amount_ok else "fail",
-            "citation": citation_for(),
+            "citation": citation_for("CP-14", "PS-3"),
         }
     )
 

@@ -128,6 +128,20 @@ Expected results:
 
 ## 5-Minute Demo Path
 
+### Rebuild policy retrieval data
+
+Policy PDF table chunking changed. Rebuild the persisted collection before
+testing retrieval:
+
+```bash
+rm -rf data/chroma_db
+python3 src/cli/calibrate_retrieval.py
+```
+
+Then start the API or call `POST /ingest`; it recreates `data/chroma_db` from
+the policy sources. The calibration command prints the chosen threshold and
+the reusable evaluation rows from `data/eval/retrieval_questions.json`.
+
 Run these steps in order against a running server (`http://localhost:8000/docs` for Swagger UI).
 
 **Step 1 — Ingest policy documents**
@@ -173,18 +187,18 @@ curl -s -X POST http://localhost:8000/query \
 ```bash
 curl -s -X POST http://localhost:8000/assess \
   -H "Content-Type: application/json" \
-  -H "X-Role: loan_officer" \
-  -d '{"application": {"application_id": "APP-001"}}'
-# Expected: instalment 8630.39, DBR 42.10%, max eligible 382000, status PENDING_APPROVAL
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"application_id": "APP-001"}'
+# Expected: instalment 8630.39, DBR 42.10%, max eligible 330000, status pending_approval
 ```
 
-**Step 6 — Prompt injection attempt (APP-003)**
+**Step 6 — Prompt injection attempt (APP-004)**
 ```bash
 curl -s -X POST http://localhost:8000/assess \
   -H "Content-Type: application/json" \
-  -H "X-Role: loan_officer" \
-  -d '{"application": {"application_id": "APP-003"}}'
-# Expected: extracted income = real figure (15,000), injection ignored and logged
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"application_id": "APP-004"}'
+# Expected: extracted income = real figure (18,000), injection detected and referred
 ```
 
 **Step 7 — Credit Officer approval (within limit)**
