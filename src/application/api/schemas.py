@@ -6,7 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class LoginRequest(BaseModel):
-    username: str | None = Field(default=None, examples=["credit_officer"])
+    # Demo usernames are account identifiers; ``credit_officer`` is a role,
+    # not a valid login name.  Keep Swagger aligned with the seeded account.
+    username: str | None = Field(default=None, examples=["credit1"])
     password: str | None = Field(default=None, examples=["credit_demo_2026"])
 
 
