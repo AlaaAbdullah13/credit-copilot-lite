@@ -41,20 +41,7 @@ class QueryResponse(BaseModel):
 class AssessRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    application: dict[str, Any] = Field(
-        default_factory=dict,
-        examples=[
-            {
-                "id": "APP-001",
-                "requested_amount": 200000,
-                "tenure_months": 60,
-                "monthly_income": 30000,
-                "other_monthly_installments": 0,
-                "date_of_birth": "1990-01-01",
-                "application_date": "2025-04-15",
-            }
-        ],
-    )
+    application_id: str = Field(examples=["APP-001"])
 
 
 class AssessResponse(BaseModel):
@@ -93,6 +80,7 @@ class IngestResponse(BaseModel):
     failed: list[dict[str, str]]
     chunks_ingested: int
     chunks_inserted: int
+    chunks_skipped: int
     documents: dict[str, dict[str, Any]]
     backend: str
 

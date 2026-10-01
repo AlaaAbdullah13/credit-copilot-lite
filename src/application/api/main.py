@@ -37,6 +37,7 @@ from src.domain.exceptions import (
     AuthorityLimitExceeded,
     InvalidApplication,
     InvalidLLMOutput,
+    LLMProviderError,
     PolicyEditionNotFound,
     PolicySourceUnavailable,
     PricingNotFound,
@@ -49,6 +50,7 @@ from src.infrastructure.db.models import (
     User,
 )
 from src.infrastructure.db.sql import SessionLocal
+from src.infrastructure.ingestion.application_packs import load_application_pack
 from src.infrastructure.ingestion.pipeline import ingest_documents, query_policy
 from src.infrastructure.llm.provider_factory import create_llm_provider
 from src.infrastructure.vector_store.chroma_adapter import ChromaAdapter
@@ -94,14 +96,16 @@ def get_store() -> ChromaAdapter:
 @app.exception_handler(AuthorityLimitExceeded)
 @app.exception_handler(PricingNotFound)
 @app.exception_handler(PolicySourceUnavailable)
+@app.exception_handler(LLMProviderError)
 async def named_error(_: Request, exc: Exception):
     status_codes = {
         AuthorityLimitExceeded: 403,
         PolicyEditionNotFound: 404,
         PolicySourceUnavailable: 503,
+        LLMProviderError: 503,
     }
     content = {"error": type(exc).__name__, "detail": str(exc)}
-    if isinstance(exc, (PricingNotFound, PolicySourceUnavailable)):
+    if isinstance(exc, (PricingNotFound, PolicySourceUnavailable, LLMProviderError)):
         content["result"] = "Refer to human"
     return JSONResponse(status_code=status_codes.get(type(exc), 422), content=content)
 
@@ -176,7 +180,7 @@ def ingest(_: dict = Depends(staff)):
 def query(payload: QueryRequest, _: dict = Depends(staff)):
     if not payload.question:
         raise InvalidApplication("question is required")
-    threshold = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.35"))
+    threshold = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.45"))
     top_k = int(os.getenv("RETRIEVAL_TOP_K", "5"))
     return query_policy(
         payload.question,
@@ -191,13 +195,9 @@ def query(payload: QueryRequest, _: dict = Depends(staff)):
     "/assess", response_model=AssessResponse, responses={422: {"model": ErrorResponse}}
 )
 def assess(payload: AssessRequest, user: dict = Depends(staff)):
-    raw, normalized = (
-        payload.application,
-        load_application(payload.application),
-    )
-    app_id = str(
-        normalized.get("id") or normalized.get("application_id") or uuid.uuid4()
-    )
+    raw = load_application_pack(payload.application_id)
+    normalized = load_application(raw)
+    app_id = payload.application_id
     with SessionLocal() as db:
         existing = db.get(Application, app_id)
         if existing is not None and existing.status != "pending_approval":
@@ -210,8 +210,20 @@ def assess(payload: AssessRequest, user: dict = Depends(staff)):
             owner_id=owner.id,
             requested_amount=normalized["requested_amount"],
             tenure_months=normalized["tenure_months"],
-            monthly_income=normalized["monthly_income"],
-            other_monthly_installments=normalized["other_monthly_installments"],
+            monthly_income=float(
+                str(
+                    memo.raw_extraction.get("extraction", {})
+                    .get("net_monthly_income", {})
+                    .get("value", 0)
+                ).replace(",", "")
+            ),
+            other_monthly_installments=float(
+                str(
+                    memo.raw_extraction.get("extraction", {})
+                    .get("existing_monthly_obligations", {})
+                    .get("value", 0)
+                ).replace(",", "")
+            ),
             date_of_birth=normalized["date_of_birth"],
             application_date=normalized["application_date"],
             policy_edition=select_policy_edition(normalized["application_date"]),
