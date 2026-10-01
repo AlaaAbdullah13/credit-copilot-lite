@@ -4,6 +4,7 @@ import os
 import uuid
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.application.anonymizer import PROTECTED
@@ -58,6 +59,18 @@ from src.infrastructure.vector_store.chroma_adapter import ChromaAdapter
 app = FastAPI(
     title="Credit Copilot Lite",
     description="Grounded personal-loan assessment with human approval controls.",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 staff = require_role("loan_officer", "credit_officer")
 credit = require_role("credit_officer")
@@ -180,7 +193,7 @@ def ingest(_: dict = Depends(staff)):
 def query(payload: QueryRequest, _: dict = Depends(staff)):
     if not payload.question:
         raise InvalidApplication("question is required")
-    threshold = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.45"))
+    threshold = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.30"))
     top_k = int(os.getenv("RETRIEVAL_TOP_K", "5"))
     return query_policy(
         payload.question,
@@ -188,6 +201,7 @@ def query(payload: QueryRequest, _: dict = Depends(staff)):
         policy_edition=normalize_policy_edition(payload.policy_edition),
         threshold=threshold,
         k=top_k,
+        llm_provider=get_store().embedding_provider,
     )
 
 

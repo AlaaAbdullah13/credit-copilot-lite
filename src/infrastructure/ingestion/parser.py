@@ -189,6 +189,24 @@ def parse_pdf(path: str) -> list[dict[str, Any]]:
                 }
             )
             continue
+        # CP-13 is a comparison table whose rows begin with CP clause labels.
+        # Those labels are table cells, not new clauses. Retain only the table
+        # bounds so CP-13 owns its header and every row through CP-14.
+        if "Changes from the 2024 edition" in cleaned:
+            table_start = next(
+                (match.start() for match in matches if match.group("id") == "CP-13"),
+                None,
+            )
+            table_end = next(
+                (match.start() for match in matches if match.group("id") == "CP-14"),
+                None,
+            )
+            if table_start is not None and table_end is not None:
+                matches = [
+                    match
+                    for match in matches
+                    if not (table_start < match.start() < table_end)
+                ]
         # Preserve a cover-page preamble but split every numbered policy/manual
         # clause.  This deliberately avoids arbitrary fixed-size chunks.
         if matches[0].start() > 0:

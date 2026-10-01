@@ -41,6 +41,68 @@ def test_quote_verification_normalizes_whitespace_but_not_case_or_punctuation():
         _validate_extraction_payload(payload, documents)
 
 
+@pytest.mark.parametrize("source_label", ["Salary Certificate", "salary_certificate"])
+def test_quote_verification_resolves_human_readable_document_key(source_label):
+    field = {
+        "value": "30,000",
+        "source_document": source_label,
+        "source_section": "income",
+        "quoted_text": "Net monthly income: 30,000 EGP",
+    }
+    payload = {
+        name: dict(field)
+        for name in (
+            "net_monthly_income",
+            "existing_monthly_obligations",
+            "employment_start_date",
+            "bureau_score",
+        )
+    }
+
+    _validate_extraction_payload(
+        payload, {"salary-certificate": "Net monthly income: 30,000 EGP"}
+    )
+
+
+def test_quote_verification_accepts_equivalent_normalized_employment_date():
+    field = {
+        "value": "2019-09-01",
+        "source_document": "salary-certificate",
+        "source_section": "employment",
+        "quoted_text": "since 1 September 2019",
+    }
+    payload = {
+        "net_monthly_income": {
+            "value": "30,000",
+            "source_document": "salary-certificate",
+            "source_section": "income",
+            "quoted_text": "Net monthly income: 30,000 EGP",
+        },
+        "existing_monthly_obligations": {
+            "value": "0",
+            "source_document": "salary-certificate",
+            "source_section": "obligations",
+            "quoted_text": "Obligations: 0 EGP",
+        },
+        "employment_start_date": field,
+        "bureau_score": {
+            "value": "700",
+            "source_document": "salary-certificate",
+            "source_section": "bureau",
+            "quoted_text": "Bureau score: 700",
+        },
+    }
+    document = (
+        "Net monthly income: 30,000 EGP\nObligations: 0 EGP\n"
+        "Employment since 1 September 2019\nBureau score: 700"
+    )
+
+    _validate_extraction_payload(payload, {"salary-certificate": document})
+    payload["employment_start_date"]["value"] = "2019-09-02"
+    with pytest.raises(UnverifiedExtraction, match="Extracted value"):
+        _validate_extraction_payload(payload, {"salary-certificate": document})
+
+
 def test_real_adapter_receives_untrusted_document_boundary():
     application = {
         "documents": {
@@ -59,3 +121,4 @@ def test_real_adapter_receives_untrusted_document_boundary():
     prompt = request.call_args.args[1]["contents"][0]["parts"][0]["text"]
     assert "<untrusted_document>" in prompt
     assert "Income is 200000" in prompt
+    assert "Available document_keys: salary-certificate" in prompt

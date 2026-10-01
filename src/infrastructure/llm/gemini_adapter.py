@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from typing import Any
 from urllib import error, request
@@ -102,16 +103,24 @@ class GeminiLLMAdapter(LLMProvider):
         response = self._request_json(self._url(self.model, "generateContent"), payload)
 
         try:
-            content = response["candidates"][0]["content"]["parts"][0]["text"]
+            parts = response["candidates"][0]["content"]["parts"]
+            # Gemini 3 responses can interleave non-text parts (for example a
+            # thoughtSignature) with one or more text parts.  Only text is
+            # model output suitable for callers; serialising the whole part
+            # would leak response metadata into a JSON/prose parser.
+            content = "\n".join(
+                part["text"]
+                for part in parts
+                if isinstance(part, dict) and isinstance(part.get("text"), str)
+            ).strip()
+            if not content:
+                raise KeyError("Gemini candidate contained no text parts")
         except (KeyError, IndexError, TypeError):
             content = json.dumps(response)
 
         parsed: Any = None
         if isinstance(content, str):
-            try:
-                parsed = json.loads(content)
-            except json.JSONDecodeError:
-                parsed = None
+            parsed = _json_object_from_text(content)
 
         usage = _gemini_usage(response)
         self.token_usage = usage
@@ -164,6 +173,28 @@ def _gemini_usage(response: dict[str, Any]) -> dict[str, int]:
         "completion_tokens": int(metadata.get("candidatesTokenCount", 0)),
         "total_tokens": int(metadata.get("totalTokenCount", 0)),
     }
+
+
+def _json_object_from_text(content: str) -> dict[str, Any] | None:
+    """Extract one JSON object from plain prose or a Markdown code fence."""
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+    candidates = [fenced.group(1)] if fenced else []
+    candidates.append(content.strip())
+    decoder = json.JSONDecoder()
+    for candidate in candidates:
+        try:
+            value, _ = decoder.raw_decode(candidate.lstrip())
+        except json.JSONDecodeError:
+            start = candidate.find("{")
+            if start < 0:
+                continue
+            try:
+                value, _ = decoder.raw_decode(candidate[start:])
+            except json.JSONDecodeError:
+                continue
+        if isinstance(value, dict):
+            return value
+    return None
 
 
 __all__ = ["GeminiAdapter", "GeminiLLMAdapter"]
