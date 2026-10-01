@@ -46,6 +46,10 @@ def chunk_by_clause(
             "source_file": section.get("source_file") or file_name,
             "page": section.get("page"),
             "clause_id": section_id,
+            # A clause can yield more than one row/chunk (for example a CSV
+            # pricing table). Keep a stable within-document discriminator for
+            # storage while preserving clause_id for citations.
+            "chunk_index": index,
             "policy_edition": section.get("policy_edition")
             or policy_edition
             or _infer_policy_edition(str(file_name)),

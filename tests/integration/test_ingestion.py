@@ -5,6 +5,18 @@ from src.infrastructure.llm.fake_adapter import FakeLLMAdapter
 from src.infrastructure.vector_store.chroma_adapter import ChromaAdapter
 
 
+class CountingEmbeddingProvider(FakeLLMAdapter):
+    """Offline provider used to ensure unchanged chunks are never re-embedded."""
+
+    def __init__(self):
+        super().__init__()
+        self.embedding_calls = 0
+
+    def embed(self, text, **kwargs):
+        self.embedding_calls += 1
+        return super().embed(text, **kwargs)
+
+
 def test_parse_and_chunk_sample():
     sections = parse_markdown("data/policy/product-sheet-personal-loan.md")
     chunks = chunk_by_clause(sections)
@@ -43,6 +55,42 @@ def test_ingestion_and_query_return_citations(tmp_path):
     assert answer["citations"]
     assert "45%" in answer["answer"] or "45" in answer["answer"]
     assert answer["citations"][0]["policy_edition"] == "CP-2025"
+
+
+def test_reingestion_skips_unchanged_policy_and_application_chunks(tmp_path):
+    """A second offline ingestion must make no calls to the embedding provider."""
+    from src.infrastructure.ingestion.application_packs import seed_application_packs
+    from src.infrastructure.vector_store.untrusted_application_store import (
+        UntrustedApplicationStore,
+    )
+
+    policy_provider = CountingEmbeddingProvider()
+    policy_store = ChromaAdapter(
+        persist_directory=str(tmp_path / "policy-store"),
+        embedding_provider=policy_provider,
+    )
+    files = ["data/policy/circular-2025-02.md"]
+    first_policy = ingest_documents(files, store=policy_store, policy_edition="2025")
+    policy_calls_after_first = policy_provider.embedding_calls
+    second_policy = ingest_documents(files, store=policy_store, policy_edition="2025")
+
+    assert first_policy["chunks_inserted"] > 0
+    assert second_policy["chunks_inserted"] == 0
+    assert second_policy["chunks_skipped"] == first_policy["chunks_ingested"]
+    assert policy_provider.embedding_calls == policy_calls_after_first
+
+    application_provider = CountingEmbeddingProvider()
+    application_store = UntrustedApplicationStore(
+        application_provider, persist_directory=str(tmp_path / "application-store")
+    )
+    first_packs = seed_application_packs(application_store)
+    application_calls_after_first = application_provider.embedding_calls
+    second_packs = seed_application_packs(application_store)
+
+    assert first_packs["chunks_inserted"] > 0
+    assert second_packs["chunks_inserted"] == 0
+    assert second_packs["chunks_skipped"] == first_packs["chunks_inserted"]
+    assert application_provider.embedding_calls == application_calls_after_first
 
 
 def test_query_returns_no_chunk_above_threshold_when_score_is_low(tmp_path):

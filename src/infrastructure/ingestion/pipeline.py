@@ -102,6 +102,7 @@ def ingest_documents(
             }
 
     inserted = vector_store.add_documents(all_chunks)
+    skipped = vector_store.last_add_counts["skipped"]
     for path_text in successful:
         file_chunks = [
             c for c in all_chunks if c["metadata"].get("source_file") == path_text
@@ -109,14 +110,24 @@ def ingest_documents(
         documents[path_text] = {
             "status": "success",
             "chunks": len(file_chunks),
-            "inserted": sum(1 for c in file_chunks if vector_store.contains(c)),
-            "skipped": sum(1 for c in file_chunks if not vector_store.contains(c)),
+            "inserted": sum(
+                1
+                for c in file_chunks
+                if vector_store._coerce_doc(c)["id"] in vector_store.last_inserted_ids
+            ),
+            "skipped": sum(
+                1
+                for c in file_chunks
+                if vector_store._coerce_doc(c)["id"]
+                not in vector_store.last_inserted_ids
+            ),
         }
     return {
         "successful": successful,
         "failed": failed,
         "chunks_ingested": len(all_chunks),
         "chunks_inserted": inserted,
+        "chunks_skipped": skipped,
         "documents": documents,
         "backend": vector_store.backend_name,
     }
@@ -137,6 +148,13 @@ def query_policy(
         policy_edition=policy_edition,
         threshold=threshold,
     )
+    # The adapter applies the threshold too, but keep the refusal boundary in
+    # the policy engine so alternate stores cannot return below-threshold hits.
+    matches = [
+        match
+        for match in matches
+        if float(match.get("score", float("-inf"))) >= threshold
+    ]
 
     if not matches:
         return {

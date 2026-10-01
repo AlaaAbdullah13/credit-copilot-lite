@@ -144,6 +144,32 @@ def parse_pdf(path: str) -> list[dict[str, Any]]:
         raw_text = "\f".join(library_pages)
 
     pages = raw_text.split("\f") if "\f" in raw_text else [raw_text]
+    # Application packs deliberately use named parts rather than policy clause
+    # numbers. Keep those parts intact: downstream extraction cites the real
+    # source section and never treats customer text as policy.
+    if (
+        "Personal Loan Application Pack" in raw_text
+        and "Part 1 — Application form" in raw_text
+    ):
+        part_pattern = re.compile(r"(?=Part [123] — )")
+        names = {
+            "Part 1 — Application form": "application-form",
+            "Part 2 — Salary certificate": "salary-certificate",
+            "Part 3 — Credit bureau summary": "credit-bureau-summary",
+        }
+        return [
+            {
+                "id": names[
+                    next(prefix for prefix in names if block.startswith(prefix))
+                ],
+                "heading": next(prefix for prefix in names if block.startswith(prefix)),
+                "text": block.strip(),
+                "source_file": path,
+                "page": None,
+            }
+            for block in part_pattern.split(raw_text)
+            if block.strip().startswith("Part ")
+        ]
     sections: list[dict[str, Any]] = []
 
     clause_pattern = re.compile(r"(?m)^\s*(?P<id>(?:CP|PM)-\d+(?:\.\d+)?)\.?(?:\s|$)")
