@@ -19,6 +19,14 @@ bearer = HTTPBearer(
 ALGORITHM = "HS256"
 
 
+def _scrypt_n() -> int:
+    """Use the production-strength cost unless a test environment lowers it."""
+    value = int(os.getenv("SCRYPT_N", str(2**14)))
+    if value < 2 or value & (value - 1):
+        raise ValueError("SCRYPT_N must be a power of two greater than one")
+    return value
+
+
 def _secret() -> str:
     secret = os.getenv("AUTH_TOKEN_SECRET")
     if not secret:
@@ -29,14 +37,14 @@ def _secret() -> str:
 def hash_password(password: str) -> str:
     """Store passwords with stdlib scrypt; never persist plaintext credentials."""
     salt = os.urandom(16)
-    digest = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
+    digest = hashlib.scrypt(password.encode(), salt=salt, n=_scrypt_n(), r=8, p=1)
     return base64.b64encode(salt + digest).decode()
 
 
 def verify_password(password: str, encoded: str) -> bool:
     raw = base64.b64decode(encoded.encode())
     salt, expected = raw[:16], raw[16:]
-    actual = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
+    actual = hashlib.scrypt(password.encode(), salt=salt, n=_scrypt_n(), r=8, p=1)
     return hmac.compare_digest(actual, expected)
 
 
