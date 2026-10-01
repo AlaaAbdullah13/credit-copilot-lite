@@ -50,14 +50,18 @@ def parse_markdown(path: str) -> list[dict[str, Any]]:
             continue
 
         heading_match = re.match(r"^(#+)\s+(.*)$", block, re.MULTILINE)
-        heading = heading_match.group(2).strip() if heading_match else f"section-{index}"
+        heading = (
+            heading_match.group(2).strip() if heading_match else f"section-{index}"
+        )
         body = re.sub(r"^#+\s+.*\n?", "", block, count=1).strip()
         if not body:
             body = heading
 
         sections.append(
             {
-                "id": heading_match.group(2).strip() if heading_match else f"section-{index}",
+                "id": heading_match.group(2).strip()
+                if heading_match
+                else f"section-{index}",
                 "heading": heading,
                 "text": body,
                 "source_file": path,
@@ -140,21 +144,77 @@ def parse_pdf(path: str) -> list[dict[str, Any]]:
         raw_text = "\f".join(library_pages)
 
     pages = raw_text.split("\f") if "\f" in raw_text else [raw_text]
+    # Application packs deliberately use named parts rather than policy clause
+    # numbers. Keep those parts intact: downstream extraction cites the real
+    # source section and never treats customer text as policy.
+    if (
+        "Personal Loan Application Pack" in raw_text
+        and "Part 1 — Application form" in raw_text
+    ):
+        part_pattern = re.compile(r"(?=Part [123] — )")
+        names = {
+            "Part 1 — Application form": "application-form",
+            "Part 2 — Salary certificate": "salary-certificate",
+            "Part 3 — Credit bureau summary": "credit-bureau-summary",
+        }
+        return [
+            {
+                "id": names[
+                    next(prefix for prefix in names if block.startswith(prefix))
+                ],
+                "heading": next(prefix for prefix in names if block.startswith(prefix)),
+                "text": block.strip(),
+                "source_file": path,
+                "page": None,
+            }
+            for block in part_pattern.split(raw_text)
+            if block.strip().startswith("Part ")
+        ]
     sections: list[dict[str, Any]] = []
 
+    clause_pattern = re.compile(r"(?m)^\s*(?P<id>(?:CP|PM)-\d+(?:\.\d+)?)\.?(?:\s|$)")
     for page_index, page_text in enumerate(pages, start=1):
         cleaned = page_text.strip()
         if not cleaned:
             continue
-        sections.append(
-            {
-                "id": f"page-{page_index}",
-                "text": cleaned,
-                "source_file": path,
-                "page": page_index,
-                "policy_edition": infer_policy_edition(path),
-            }
-        )
+        matches = list(clause_pattern.finditer(cleaned))
+        if not matches:
+            sections.append(
+                {
+                    "id": f"page-{page_index}",
+                    "text": cleaned,
+                    "source_file": path,
+                    "page": page_index,
+                    "policy_edition": infer_policy_edition(path),
+                }
+            )
+            continue
+        # Preserve a cover-page preamble but split every numbered policy/manual
+        # clause.  This deliberately avoids arbitrary fixed-size chunks.
+        if matches[0].start() > 0:
+            sections.append(
+                {
+                    "id": f"page-{page_index}-preamble",
+                    "text": cleaned[: matches[0].start()].strip(),
+                    "source_file": path,
+                    "page": page_index,
+                    "policy_edition": infer_policy_edition(path),
+                }
+            )
+        for index, match in enumerate(matches):
+            end = (
+                matches[index + 1].start() if index + 1 < len(matches) else len(cleaned)
+            )
+            text = cleaned[match.start() : end].strip()
+            sections.append(
+                {
+                    "id": match.group("id"),
+                    "text": text,
+                    "source_file": path,
+                    "page": page_index,
+                    "policy_edition": infer_policy_edition(path),
+                }
+            )
 
     return sections
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from datetime import date, datetime
 from typing import Any
 
@@ -12,6 +14,10 @@ class FakeLLMAdapter(LLMProvider):
 
     def __init__(self, seed: str = "fake") -> None:
         self.seed = seed
+        self.tokens_consumed = 0
+        self.token_usage: dict[str, int] = {}
+        self.embedding_model = "fake-hash-embedding"
+        self.embedding_dimension = 256
 
     @staticmethod
     def _normalize_value(value: Any) -> Any:
@@ -19,12 +25,71 @@ class FakeLLMAdapter(LLMProvider):
             return value.isoformat()
         return value
 
+    @staticmethod
+    def _display(value: Any) -> Any:
+        return int(value) if isinstance(value, float) and value.is_integer() else value
+
     def complete(self, prompt: str, **kwargs: Any) -> dict[str, Any]:
+        # FakeLLM has no provider billable usage; this is its explicit,
+        # deterministic adapter usage counter rather than an API-layer guess.
+        self.tokens_consumed += max(1, len(prompt.split()))
+        self.token_usage = {
+            "prompt_tokens": max(1, len(prompt.split())),
+            "completion_tokens": 0,
+            "total_tokens": max(1, len(prompt.split())),
+        }
         lowered = (prompt or "").lower()
-        payload = kwargs.get("application") or kwargs.get("input") or kwargs.get("json") or {}
-        payload = {key: self._normalize_value(value) for key, value in payload.items()}
+        payload = (
+            kwargs.get("application") or kwargs.get("input") or kwargs.get("json") or {}
+        )
+        payload = {
+            key: self._display(self._normalize_value(value))
+            for key, value in payload.items()
+        }
 
         if "extract" in lowered:
+            documents = payload.get("documents", {})
+            source_text = "\n".join(str(v) for v in documents.values())
+
+            def found(pattern, default, source):
+                match = re.search(pattern, source_text, re.IGNORECASE)
+                return (
+                    (match.group(1), match.group(0), source)
+                    if match
+                    else (default, str(default), "application-form")
+                )
+
+            income, income_quote, income_source = found(
+                r"Net monthly income\s+([\d,]+(?:\.\d+)?)",
+                payload.get("monthly_income", 15000),
+                "salary-certificate",
+            )
+            obligations, obligations_quote, obligations_source = found(
+                r"Total monthly instalments\s+EGP\s*([\d,]+(?:\.\d+)?)",
+                payload.get("other_monthly_installments", 0),
+                "credit-bureau-summary",
+            )
+            employment_match = re.search(
+                r"employed(?: by| with)?\s*(?:[^\n]*?)\s+since\s+(\d{1,2}\s+\w+\s+\d{4})",
+                source_text,
+                re.IGNORECASE,
+            )
+            employment = (
+                employment_match.group(1)
+                if employment_match
+                else payload.get("employment_start_date", "2020-01-01")
+            )
+            employment_quote = (
+                employment_match.group(0) if employment_match else str(employment)
+            )
+            employment_source = (
+                "salary-certificate" if employment_match else "application-form"
+            )
+            score, score_quote, score_source = found(
+                r"Bureau score\s+(\d+)",
+                payload.get("bureau_score", 700),
+                "credit-bureau-summary",
+            )
             extraction = {
                 "requested_amount": {
                     "value": payload.get("requested_amount", 100000),
@@ -50,14 +115,36 @@ class FakeLLMAdapter(LLMProvider):
                     "source_section": "submission-details",
                     "quoted_text": f"Application date: {payload.get('application_date', '2025-01-15')}",
                 },
-                "monthly_income": {
-                    "value": payload.get("monthly_income", 15000),
-                    "source_document": "application-form",
-                    "source_section": "income-details",
-                    "quoted_text": f"Monthly income: {payload.get('monthly_income', 15000)} EGP",
+                "net_monthly_income": {
+                    "value": income,
+                    "source_document": income_source,
+                    "source_section": "salary certificate",
+                    "quoted_text": income_quote,
+                },
+                "existing_monthly_obligations": {
+                    "value": obligations,
+                    "source_document": obligations_source,
+                    "source_section": "credit bureau summary",
+                    "quoted_text": obligations_quote,
+                },
+                "employment_start_date": {
+                    "value": employment,
+                    "source_document": employment_source,
+                    "source_section": "salary certificate",
+                    "quoted_text": employment_quote,
+                },
+                "bureau_score": {
+                    "value": score,
+                    "source_document": score_source,
+                    "source_section": "credit bureau summary",
+                    "quoted_text": score_quote,
                 },
             }
-            return {"content": json.dumps(extraction), "json": extraction}
+            return {
+                "content": json.dumps(extraction),
+                "json": extraction,
+                "usage": self.token_usage,
+            }
 
         if "memo" in lowered:
             requested_amount = payload.get("requested_amount", 0)
@@ -70,12 +157,30 @@ class FakeLLMAdapter(LLMProvider):
                 f"{requested_amount} EGP, monthly income is {monthly_income} EGP, "
                 f"EMI is {emi} EGP, DBR is {dbr}%, and the maximum eligible amount is {max_amount} EGP."
             )
-            return {"content": memo_text, "json": {"recommendation": "pending", "summary": memo_text}}
+            return {
+                "content": memo_text,
+                "json": {"recommendation": "pending", "summary": memo_text},
+                "usage": self.token_usage,
+            }
 
-        return {"content": json.dumps({"result": "ok"}), "json": {"result": "ok"}}
+        return {
+            "content": json.dumps({"result": "ok"}),
+            "json": {"result": "ok"},
+            "usage": self.token_usage,
+        }
 
     def embed(self, text: str, **kwargs: Any) -> list[float]:
-        return [float(ord(char) % 10) / 10 for char in (text or "")[:32]] or [0.0]
+        """Return a fixed-size, deterministic local embedding.
+
+        A fixed dimension is required by vector databases; hashing words also
+        gives the offline test provider useful lexical similarity semantics.
+        """
+        vector = [0.0] * 256
+        for token in re.findall(r"[a-z0-9]+", (text or "").lower()):
+            digest = hashlib.sha256(token.encode("utf-8")).digest()
+            index = digest[0] % len(vector)
+            vector[index] += 1.0
+        return vector
 
     def generate(self, prompt: str, **kwargs: Any) -> dict[str, Any]:
         return self.complete(prompt, **kwargs)

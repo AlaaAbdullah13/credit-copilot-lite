@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Credit Copilot Lite</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- Header -->
+  <header class="bg-blue-800 text-white px-6 py-4 flex items-center justify-between">
+    <div>
+      <h1 class="text-xl font-bold">Credit Copilot Lite</h1>
+      <p class="text-blue-200 text-sm">Delta Commercial Bank — Personal Loan Underwriting</p>
+    </div>
+    <div id="user-badge" class="hidden bg-blue-700 px-3 py-1 rounded text-sm"></div>
+  </header>
+
+  <!-- Login Screen -->
+  <div id="login-screen" class="max-w-sm mx-auto mt-20 bg-white rounded-xl shadow p-8">
+    <h2 class="text-lg font-semibold mb-6 text-gray-800">Sign In</h2>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+        <input id="username" type="text" placeholder="ahmed / sara / omar"
+          class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Role</label>
+        <select id="role-select" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="loan_officer">Loan Officer</option>
+          <option value="credit_officer">Credit Officer</option>
+        </select>
+      </div>
+      <button onclick="doLogin()"
+        class="w-full bg-blue-700 hover:bg-blue-800 text-white font-medium py-2 rounded-lg text-sm transition">
+        Sign In
+      </button>
+      <p id="login-error" class="text-red-500 text-xs hidden"></p>
+    </div>
+    <div class="mt-6 p-3 bg-gray-50 rounded text-xs text-gray-500">
+      <strong>Demo accounts:</strong><br/>
+      ahmed / loan_officer — submit &amp; query only<br/>
+      sara / credit_officer — approve up to EGP 250,000<br/>
+      omar / credit_officer — senior (raise limit in .env)
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="main-app" class="hidden max-w-4xl mx-auto px-4 py-8 space-y-6">
+
+    <!-- Tabs -->
+    <div class="flex space-x-1 bg-white rounded-xl shadow p-1">
+      <button onclick="showTab('qa')" id="tab-qa"
+        class="flex-1 py-2 rounded-lg text-sm font-medium transition tab-btn bg-blue-700 text-white">
+        Policy Q&amp;A
+      </button>
+      <button onclick="showTab('assess')" id="tab-assess"
+        class="flex-1 py-2 rounded-lg text-sm font-medium transition tab-btn text-gray-600 hover:bg-gray-100">
+        Assessment
+      </button>
+      <button onclick="showTab('approve')" id="tab-approve"
+        class="flex-1 py-2 rounded-lg text-sm font-medium transition tab-btn text-gray-600 hover:bg-gray-100">
+        Approval
+      </button>
+    </div>
+
+    <!-- Tab: Policy Q&A -->
+    <div id="tab-content-qa" class="bg-white rounded-xl shadow p-6 space-y-4">
+      <h2 class="font-semibold text-gray-800">Ask a Policy Question</h2>
+      <textarea id="qa-question" rows="3" placeholder="e.g. What is the maximum DBR under the 2025 policy?"
+        class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+      <div class="flex items-center gap-3">
+        <label class="text-sm text-gray-600">Edition:</label>
+        <select id="qa-edition" class="border rounded px-2 py-1 text-sm">
+          <option value="">Any (latest)</option>
+          <option value="2024">2024</option>
+          <option value="2025">2025</option>
+        </select>
+        <button onclick="doQuery()"
+          class="bg-blue-700 hover:bg-blue-800 text-white px-4 py-1.5 rounded-lg text-sm transition">
+          Ask
+        </button>
+      </div>
+      <div id="qa-result" class="hidden">
+        <div id="qa-answer" class="p-4 bg-blue-50 rounded-lg text-sm text-gray-800 whitespace-pre-wrap"></div>
+        <div id="qa-citations" class="mt-2 space-y-1"></div>
+        <div id="qa-refusal" class="hidden p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800"></div>
+      </div>
+      <div id="qa-loading" class="hidden text-sm text-gray-500 animate-pulse">Searching policy documents...</div>
+    </div>
+
+    <!-- Tab: Assessment -->
+    <div id="tab-content-assess" class="hidden bg-white rounded-xl shadow p-6 space-y-4">
+      <h2 class="font-semibold text-gray-800">Assess Application</h2>
+      <div class="flex items-center gap-3">
+        <label class="text-sm text-gray-600">Application:</label>
+        <select id="app-select" class="border rounded px-2 py-1 text-sm">
+          <option value="APP-001">APP-001</option>
+          <option value="APP-002">APP-002</option>
+          <option value="APP-003">APP-003 (injection test)</option>
+          <option value="APP-004">APP-004</option>
+          <option value="APP-005">APP-005</option>
+        </select>
+        <button onclick="doAssess()"
+          class="bg-blue-700 hover:bg-blue-800 text-white px-4 py-1.5 rounded-lg text-sm transition">
+          Run Assessment
+        </button>
+      </div>
+      <div id="assess-loading" class="hidden text-sm text-gray-500 animate-pulse">Running assessment pipeline...</div>
+      <div id="assess-result" class="hidden space-y-4">
+
+        <!-- Protected attributes -->
+        <div class="p-3 bg-green-50 border border-green-200 rounded-lg">
+          <p class="text-xs font-semibold text-green-700 mb-1">✅ Protected Attributes Removed</p>
+          <p id="assess-removed" class="text-xs text-green-600"></p>
+        </div>
+
+        <!-- Calculations -->
+        <div class="grid grid-cols-3 gap-3">
+          <div class="p-3 bg-gray-50 rounded-lg text-center">
+            <p class="text-xs text-gray-500">Monthly Instalment</p>
+            <p id="calc-emi" class="text-lg font-bold text-blue-700"></p>
+          </div>
+          <div class="p-3 bg-gray-50 rounded-lg text-center">
+            <p class="text-xs text-gray-500">Debt Burden Ratio</p>
+            <p id="calc-dbr" class="text-lg font-bold text-blue-700"></p>
+          </div>
+          <div class="p-3 bg-gray-50 rounded-lg text-center">
+            <p class="text-xs text-gray-500">Max Eligible Amount</p>
+            <p id="calc-max" class="text-lg font-bold text-blue-700"></p>
+          </div>
+        </div>
+
+        <!-- Rule results -->
+        <div>
+          <p class="text-sm font-semibold text-gray-700 mb-2">Rule Results</p>
+          <div id="assess-rules" class="space-y-1"></div>
+        </div>
+
+        <!-- Recommendation -->
+        <div id="assess-recommendation" class="p-4 rounded-lg text-center font-bold text-lg"></div>
+
+        <!-- Memo -->
+        <div>
+          <p class="text-sm font-semibold text-gray-700 mb-1">Credit Memo</p>
+          <div id="assess-memo" class="p-3 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Approval -->
+    <div id="tab-content-approve" class="hidden bg-white rounded-xl shadow p-6 space-y-4">
+      <h2 class="font-semibold text-gray-800">Approve / Reject Application</h2>
+      <div id="approve-role-warning" class="hidden p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+        ⚠️ You are logged in as Loan Officer. Only Credit Officers can approve applications.
+      </div>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Recommended Amount (EGP)</label>
+          <input id="approve-amount" type="number" placeholder="e.g. 300000" value="200000"
+            class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Comment</label>
+          <input id="approve-comment" type="text" placeholder="Documents verified. Approved."
+            class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div class="flex gap-2">
+          <button onclick="doApprove()"
+            class="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 rounded-lg text-sm transition">
+            Approve
+          </button>
+          <button onclick="tryOverLimit()"
+            class="flex-1 bg-red-500 hover:bg-red-600 text-white font-medium py-2 rounded-lg text-sm transition">
+            Test: Approve 300,000 (over limit)
+          </button>
+        </div>
+      </div>
+      <div id="approve-result" class="hidden p-4 rounded-lg text-sm font-medium"></div>
+    </div>
+
+  </div>
+
+<script>
+  const API = '';
+  let currentRole = '';
+  let currentUser = '';
+
+  async function doLogin() {
+    const username = document.getElementById('username').value.trim();
+    const role = document.getElementById('role-select').value;
+    if (!username) { showError('login-error', 'Enter a username'); return; }
+
+    const res = await fetch(`${API}/login`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, role})
+    });
+    const data = await res.json();
+    if (!res.ok) { showError('login-error', data.detail); return; }
+
+    currentRole = data.role;
+    currentUser = data.username;
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('main-app').classList.remove('hidden');
+    document.getElementById('user-badge').classList.remove('hidden');
+    document.getElementById('user-badge').textContent =
+      `${currentUser} — ${currentRole === 'credit_officer' ? 'Credit Officer' : 'Loan Officer'}`;
+
+    if (currentRole !== 'credit_officer') {
+      document.getElementById('approve-role-warning').classList.remove('hidden');
+    }
+  }
+
+  function showTab(tab) {
+    ['qa','assess','approve'].forEach(t => {
+      document.getElementById(`tab-content-${t}`).classList.add('hidden');
+      document.getElementById(`tab-${t}`).className =
+        'flex-1 py-2 rounded-lg text-sm font-medium transition tab-btn text-gray-600 hover:bg-gray-100';
+    });
+    document.getElementById(`tab-content-${tab}`).classList.remove('hidden');
+    document.getElementById(`tab-${tab}`).className =
+      'flex-1 py-2 rounded-lg text-sm font-medium transition tab-btn bg-blue-700 text-white';
+  }
+
+  async function doQuery() {
+    const question = document.getElementById('qa-question').value.trim();
+    const edition = document.getElementById('qa-edition').value || null;
+    if (!question) return;
+
+    document.getElementById('qa-result').classList.add('hidden');
+    document.getElementById('qa-loading').classList.remove('hidden');
+
+    const res = await fetch(`${API}/query`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Role': currentRole},
+      body: JSON.stringify({question, policy_edition: edition})
+    });
+    const data = await res.json();
+    document.getElementById('qa-loading').classList.add('hidden');
+    document.getElementById('qa-result').classList.remove('hidden');
+
+    if (data.reason === 'no_chunk_above_threshold') {
+      document.getElementById('qa-answer').classList.add('hidden');
+      document.getElementById('qa-refusal').classList.remove('hidden');
+      document.getElementById('qa-refusal').textContent =
+        '⚠️ The documents do not contain enough information to answer this question.';
+      document.getElementById('qa-citations').innerHTML = '';
+    } else {
+      document.getElementById('qa-refusal').classList.add('hidden');
+      document.getElementById('qa-answer').classList.remove('hidden');
+      document.getElementById('qa-answer').textContent = data.answer || '';
+      const cits = (data.citations || []).map(c =>
+        `<div class="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
+          📄 ${c.source_file || c.source || ''} — ${c.clause_id || ''}</div>`
+      ).join('');
+      document.getElementById('qa-citations').innerHTML = cits;
+    }
+  }
+
+  async function doAssess() {
+    const appId = document.getElementById('app-select').value;
+    document.getElementById('assess-result').classList.add('hidden');
+    document.getElementById('assess-loading').classList.remove('hidden');
+
+    const res = await fetch(`${API}/assess`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Role': currentRole},
+      body: JSON.stringify({application: {application_id: appId}})
+    });
+    const data = await res.json();
+    document.getElementById('assess-loading').classList.add('hidden');
+    document.getElementById('assess-result').classList.remove('hidden');
+
+    const removed = data.protected_attributes_removed || [];
+    document.getElementById('assess-removed').textContent =
+      removed.length ? removed.join(', ') : 'none logged';
+
+    const calc = data.calculation || {};
+    document.getElementById('calc-emi').textContent =
+      calc.monthly_instalment ? `EGP ${Number(calc.monthly_instalment).toLocaleString()}` : '—';
+    document.getElementById('calc-dbr').textContent =
+      calc.debt_burden_ratio ? `${calc.debt_burden_ratio}%` : '—';
+    document.getElementById('calc-max').textContent =
+      calc.maximum_eligible_amount ? `EGP ${Number(calc.maximum_eligible_amount).toLocaleString()}` : '—';
+
+    const rules = data.rule_results || [];
+    document.getElementById('assess-rules').innerHTML = rules.map(r => {
+      const icon = r.result === 'PASS' ? '✅' : r.result === 'FAIL' ? '❌' : '⚠️';
+      return `<div class="flex items-center gap-2 text-sm p-2 bg-gray-50 rounded">
+        <span>${icon}</span>
+        <span class="font-medium">${r.rule}</span>
+        <span class="text-gray-500 text-xs ml-auto">${r.citation || ''}</span>
+      </div>`;
+    }).join('');
+
+    const rec = data.recommendation || 'REFER_TO_HUMAN';
+    const recEl = document.getElementById('assess-recommendation');
+    if (rec === 'APPROVE') {
+      recEl.className = 'p-4 rounded-lg text-center font-bold text-lg bg-green-50 text-green-700';
+      recEl.textContent = '✅ Recommendation: APPROVE';
+    } else if (rec === 'DECLINE') {
+      recEl.className = 'p-4 rounded-lg text-center font-bold text-lg bg-red-50 text-red-700';
+      recEl.textContent = '❌ Recommendation: DECLINE';
+    } else {
+      recEl.className = 'p-4 rounded-lg text-center font-bold text-lg bg-yellow-50 text-yellow-700';
+      recEl.textContent = '⚠️ Refer to Human';
+    }
+
+    document.getElementById('assess-memo').textContent = data.memo || data.credit_memo || '';
+  }
+
+  async function doApprove() {
+    const amount = parseFloat(document.getElementById('approve-amount').value);
+    const comment = document.getElementById('approve-comment').value;
+    await sendApproval(amount, comment);
+  }
+
+  async function tryOverLimit() {
+    await sendApproval(300000, 'Testing authority limit');
+  }
+
+  async function sendApproval(amount, comment) {
+    const res = await fetch(`${API}/approve`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Role': currentRole},
+      body: JSON.stringify({amount, comment})
+    });
+    const data = await res.json();
+    const el = document.getElementById('approve-result');
+    el.classList.remove('hidden');
+    if (res.ok) {
+      el.className = 'p-4 rounded-lg text-sm font-medium bg-green-50 text-green-700';
+      el.textContent = `✅ Approved — EGP ${amount.toLocaleString()}`;
+    } else {
+      el.className = 'p-4 rounded-lg text-sm font-medium bg-red-50 text-red-700';
+      el.textContent = `❌ ${data.detail}`;
+    }
+  }
+
+  function showError(id, msg) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  }
+
+  // Enter key on login
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !document.getElementById('login-screen').classList.contains('hidden')) {
+      doLogin();
+    }
+  });
+</script>
+</body>
+</html>

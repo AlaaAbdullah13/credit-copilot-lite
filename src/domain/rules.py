@@ -1,7 +1,11 @@
 from datetime import datetime, timezone
 
 
-def age_at_maturity_ok(birth_date: datetime.date | None, tenure_months: int, max_age_at_maturity: int | None) -> bool:
+def age_at_maturity_ok(
+    birth_date: datetime.date | None,
+    tenure_months: int,
+    max_age_at_maturity: int | None,
+) -> bool:
     if birth_date is None or max_age_at_maturity is None:
         return True
     # compute age at maturity
@@ -24,5 +28,5 @@ def bureau_score_ok(score: int | None, min_score: int | None) -> bool:
     return score >= min_score
 
 
-def dbr_ok(dbr_percent: float, max_dbr_percent: float = 50.0) -> bool:
+def dbr_ok(dbr_percent: float, max_dbr_percent: float) -> bool:
     return dbr_percent <= max_dbr_percent

@@ -10,7 +10,11 @@ def _infer_policy_edition(source_file: str | None) -> str | None:
         return None
     match = re.search(r"(20\d{2})", Path(source_file).name)
     if match:
-        return match.group(1)
+        return (
+            f"CP-{match.group(1)}"
+            if "credit-policy" in Path(source_file).name
+            else None
+        )
     return None
 
 
@@ -31,7 +35,9 @@ def chunk_by_clause(
         if not text:
             continue
 
-        section_id = str(section.get("id") or section.get("clause_id") or f"section-{index}")
+        section_id = str(
+            section.get("id") or section.get("clause_id") or f"section-{index}"
+        )
         heading = str(section.get("heading") or "").strip()
         if heading:
             text = f"{heading}\n{text}"
@@ -40,14 +46,24 @@ def chunk_by_clause(
             "source_file": section.get("source_file") or file_name,
             "page": section.get("page"),
             "clause_id": section_id,
-            "policy_edition": section.get("policy_edition") or policy_edition or _infer_policy_edition(str(file_name)),
+            # A clause can yield more than one row/chunk (for example a CSV
+            # pricing table). Keep a stable within-document discriminator for
+            # storage while preserving clause_id for citations.
+            "chunk_index": index,
+            "policy_edition": section.get("policy_edition")
+            or policy_edition
+            or _infer_policy_edition(str(file_name)),
             "effective_dates": section.get("effective_dates") or effective_dates,
+            "document_type": section.get("document_type"),
+            "superseded": bool(section.get("superseded", False)),
         }
 
-        chunks.append({
-            "id": section_id,
-            "text": text,
-            "metadata": metadata,
-        })
+        chunks.append(
+            {
+                "id": section_id,
+                "text": text,
+                "metadata": metadata,
+            }
+        )
 
     return chunks

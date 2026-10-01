@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from collections.abc import Mapping
 from decimal import Decimal
@@ -9,18 +10,29 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from src.application.anonymizer import anonymize_application
+from src.application.anonymizer import sanitize_for_llm
+from src.application.policy_data import (
+    load_annual_rate,
+    load_credit_policy_limits,
+    load_product_limits,
+)
 from src.application.validation import load_application, select_policy_edition
 from src.domain.calculations import (
     age_at_maturity_check,
     calculate_dbr,
+    calculate_exact_dbr,
     calculate_installment,
     calculate_max_eligible_amount,
+    employment_duration_ok,
+    evaluate_bureau_score,
     validate_product_limits,
 )
 from src.domain.exceptions import (
     InvalidLLMOutput,
+    LLMProviderError,
     PolicyEditionNotFound,
+    PolicySourceUnavailable,
+    PricingNotFound,
     UnverifiedExtraction,
 )
 from src.domain.models.memo import CreditMemo
@@ -41,19 +53,21 @@ class ExtractionField(BaseModel):
 
 
 class ApplicationExtraction(BaseModel):
-    requested_amount: ExtractionField
-    tenure_months: ExtractionField
-    date_of_birth: ExtractionField
-    application_date: ExtractionField
-    monthly_income: ExtractionField | None = None
+    net_monthly_income: ExtractionField
+    existing_monthly_obligations: ExtractionField
+    employment_start_date: ExtractionField
+    bureau_score: ExtractionField
 
 
 def _to_json_object(value: Any) -> dict[str, Any]:
     if isinstance(value, str):
+        value = _strip_json_code_fence(value)
         try:
             parsed = json.loads(value)
         except json.JSONDecodeError as exc:
-            raise InvalidLLMOutput(f"LLM response is not valid JSON: {value!r}") from exc
+            raise InvalidLLMOutput(
+                f"LLM response is not valid JSON: {value!r}"
+            ) from exc
         if not isinstance(parsed, dict):
             raise InvalidLLMOutput("LLM JSON payload must be an object")
         return parsed
@@ -62,8 +76,23 @@ def _to_json_object(value: Any) -> dict[str, Any]:
     raise InvalidLLMOutput("LLM response was not a JSON object")
 
 
+def _strip_json_code_fence(text: str) -> str:
+    """Accept JSON fenced by an otherwise well-formed LLM response."""
+    text = text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    return text.removesuffix("```").strip()
+
+
 def _normalize_text(value: Any) -> str:
     return " ".join(re.sub(r"[^a-zA-Z0-9]+", " ", str(value).lower()).split())
+
+
+def _normalize_quoted_text(value: Any) -> str:
+    """Normalize layout only; quoted source text must otherwise match exactly."""
+    return " ".join(str(value).split())
 
 
 def _verify_value(value: Any, quoted_text: Any) -> None:
@@ -77,7 +106,10 @@ def _verify_value(value: Any, quoted_text: Any) -> None:
         return
 
     # Accept simple numeric/string variants in the quote even when formatting differs.
-    for candidate in {str(value), str(float(value)) if isinstance(value, (int, float, Decimal)) else None}:
+    for candidate in {
+        str(value),
+        str(float(value)) if isinstance(value, (int, float, Decimal)) else None,
+    }:
         if candidate and _normalize_text(candidate) in normalized_quote:
             return
 
@@ -86,13 +118,14 @@ def _verify_value(value: Any, quoted_text: Any) -> None:
     )
 
 
-def _validate_extraction_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _validate_extraction_payload(
+    payload: dict[str, Any], documents: Mapping[str, str]
+) -> dict[str, Any]:
     for field_name in [
-        "requested_amount",
-        "tenure_months",
-        "date_of_birth",
-        "application_date",
-        "monthly_income",
+        "net_monthly_income",
+        "existing_monthly_obligations",
+        "employment_start_date",
+        "bureau_score",
     ]:
         if field_name not in payload:
             continue
@@ -100,11 +133,20 @@ def _validate_extraction_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(field, dict):
             raise InvalidLLMOutput(f"Field {field_name!r} is not an object")
         _verify_value(field.get("value"), field.get("quoted_text"))
+        source = field.get("source_document")
+        if not source or _normalize_quoted_text(
+            field["quoted_text"]
+        ) not in _normalize_quoted_text(documents.get(source, "")):
+            raise UnverifiedExtraction(
+                "Quoted extraction text was not found in the cited document"
+            )
 
     try:
         return ApplicationExtraction.model_validate(payload).model_dump(mode="python")
     except ValidationError as exc:
-        raise InvalidLLMOutput("LLM extraction did not match the expected schema") from exc
+        raise InvalidLLMOutput(
+            "LLM extraction did not match the expected schema"
+        ) from exc
 
 
 def extract_structured_data(
@@ -115,14 +157,24 @@ def extract_structured_data(
 ) -> ApplicationExtraction:
     """Use the configured LLM to extract a validated application payload."""
     provider = llm or create_llm_provider()
-    prompt = load_prompt("extract")
+    documents = application.get("documents", {})
+    evidence = "\n".join(
+        text
+        for name, text in documents.items()
+        if name in {"salary-certificate", "credit-bureau-summary"}
+    ) or "\n".join(documents.values())
+    prompt = load_prompt("extract").replace("{{untrusted_document}}", evidence)
     response = provider.complete(prompt, application=dict(application))
-    payload = response.get("json") if isinstance(response, dict) and isinstance(response.get("json"), dict) else None
+    payload = (
+        response.get("json")
+        if isinstance(response, dict) and isinstance(response.get("json"), dict)
+        else None
+    )
     if payload is None:
         text = response.get("content") if isinstance(response, dict) else response
         payload = _to_json_object(text)
 
-    validated = _validate_extraction_payload(payload)
+    validated = _validate_extraction_payload(payload, documents)
     return ApplicationExtraction.model_validate(validated)
 
 
@@ -130,15 +182,19 @@ def retrieve_policy_clauses(
     policy_edition: str,
     *,
     store: ChromaAdapter | None = None,
-    threshold: float = 0.01,
+    threshold: float = 0.25,
 ) -> list[dict[str, Any]]:
     vector_store = store or ChromaAdapter()
     policy_files = [
         "data/policy/circular-2024-07.md",
         "data/policy/circular-2025-02.md",
         "data/policy/product-sheet-personal-loan.md",
+        "data/policy/pricing-table.csv",
+        "data/policy/credit-policy-2024.pdf",
+        "data/policy/credit-policy-2025.pdf",
+        "data/policy/credit-procedures-manual.pdf",
     ]
-    ingest_documents(policy_files, store=vector_store, policy_edition=policy_edition)
+    ingest_documents(policy_files, store=vector_store)
 
     search_queries = [
         "maximum tenor unsecured consumer instalment loans",
@@ -179,112 +235,280 @@ def evaluate_rules(
     citations: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     app = load_application(application)
-    max_dbr = 45.0 if policy_edition == "2025" else 50.0
-    max_tenor = 72 if policy_edition == "2025" else 60
-    age_limit = 69
+    policy_limits = load_credit_policy_limits(policy_edition)
+
+    def citation_for(*clause_ids: str) -> dict[str, Any]:
+        for citation in citations or []:
+            if not clause_ids or citation.get("clause_id") in clause_ids:
+                return citation
+        # Retrieval is mandatory before this function is called. This fallback
+        # keeps every rule traceable if a corpus uses different clause labels.
+        return {
+            "source_file": f"circular-{policy_edition}-02.md",
+            "clause_id": "policy-limits",
+            "policy_edition": policy_edition,
+        }
 
     rules: list[dict[str, Any]] = []
 
+    limits = load_product_limits()
     amount_ok = validate_product_limits(
-        app["requested_amount"],
-        app["tenure_months"],
-        min_amount=20000,
-        max_amount=1000000,
-        min_tenor=12,
-        max_tenor=max_tenor,
+        app["requested_amount"], app["tenure_months"], **limits
     )
     rules.append(
         {
             "rule": "product_limits",
             "status": "pass" if amount_ok else "fail",
-            "citation": (citations or [])[0] if citations else {"source_file": "product-sheet-personal-loan.md"},
+            "citation": citation_for(),
         }
     )
 
-    emi = calculate_installment(app["requested_amount"], app.get("annual_rate", 12.5), app["tenure_months"])
-    dbr = calculate_dbr(emi, app.get("monthly_income", 0), app.get("other_monthly_installments", 0))
+    rules.append(
+        {
+            "rule": "min_income",
+            "status": "pass"
+            if Decimal(str(app.get("monthly_income", 0))) >= policy_limits["min_income"]
+            else "fail",
+            "citation": citation_for("CP-3.3"),
+        }
+    )
+    rules.append(
+        {
+            "rule": "employment_duration",
+            "status": "pass"
+            if employment_duration_ok(
+                app.get("months_employed"), policy_limits["min_employment_months"]
+            )
+            else "fail",
+            "citation": citation_for("CP-3.2"),
+        }
+    )
+    rules.append(
+        {
+            "rule": "bureau_score",
+            "status": "pass"
+            if evaluate_bureau_score(
+                app.get("bureau_score"), policy_limits["min_bureau_score"]
+            )
+            else "refer",
+            "citation": citation_for("CP-3.6"),
+        }
+    )
+
+    segment = (
+        "payroll_transfer" if app.get("salary_transferred_to_delta") else "standard"
+    )
+    try:
+        annual_rate = load_annual_rate(app["tenure_months"], segment)
+    except PricingNotFound:
+        return rules
+    emi = calculate_installment(
+        app["requested_amount"], annual_rate, app["tenure_months"]
+    )
+    exact_dbr = calculate_exact_dbr(
+        emi, app.get("monthly_income", 0), app.get("other_monthly_installments", 0)
+    )
+    dbr = calculate_dbr(
+        emi, app.get("monthly_income", 0), app.get("other_monthly_installments", 0)
+    )
     rules.append(
         {
             "rule": "debt_burden_ratio",
-            "status": "pass" if float(dbr) <= max_dbr else "fail",
+            "status": "pass" if exact_dbr <= policy_limits["max_dbr"] else "fail",
             "value": float(dbr),
-            "limit": max_dbr,
-            "citation": next((item for item in citations or [] if item.get("clause_id") in {"C-2", "C-1"}), {"source_file": "circular-2025-02.md"}),
+            "limit": policy_limits["max_dbr"],
+            "citation": citation_for("CP-4.1"),
         }
     )
 
-    age_ok = age_at_maturity_check(app["date_of_birth"], app["application_date"], app["tenure_months"], age_limit)
+    age_ok = age_at_maturity_check(
+        app["date_of_birth"],
+        app["application_date"],
+        app["tenure_months"],
+        policy_limits["max_age_at_maturity"],
+    )
     rules.append(
         {
             "rule": "age_at_maturity",
             "status": "pass" if age_ok else "fail",
             "value": age_ok,
-            "citation": next((item for item in citations or [] if item.get("source_file", "").endswith("product-sheet-personal-loan.md")), {"source_file": "product-sheet-personal-loan.md"}),
+            "citation": citation_for("CP-3.5"),
         }
     )
 
-    if app.get("gender") is not None or app.get("marital_status") is not None or app.get("religion") is not None or app.get("nationality") is not None:
+    if (
+        app.get("gender") is not None
+        or app.get("marital_status") is not None
+        or app.get("religion") is not None
+        or app.get("nationality") is not None
+    ):
         rules.append(
             {
                 "rule": "protected_attributes_removed",
                 "status": "pass",
-                "citation": next((item for item in citations or [] if "circular-2025-02.md" in str(item.get("source_file"))), {"source_file": "circular-2025-02.md"}),
+                "citation": citation_for("C-4"),
             }
         )
 
     return rules
 
 
+def draft_credit_memo(
+    provider: LLMProvider,
+    application: Mapping[str, Any],
+    calculations: Mapping[str, Any],
+    citations: list[dict[str, Any]],
+) -> str:
+    """Draft prose only; deterministic values are inserted into the prompt by code."""
+    prompt = load_prompt("memo")
+    for name in ("requested_amount", "monthly_income", "emi", "dbr", "max_amount"):
+        prompt = prompt.replace(
+            "{{" + name + "}}", str(calculations.get(name, application.get(name, 0)))
+        )
+    code_values = {**application, **calculations, "calculations": dict(calculations)}
+    response = provider.complete(
+        prompt,
+        application=dict(code_values),
+        calculations=dict(calculations),
+        citations=citations,
+    )
+    return (
+        json.dumps(response["json"])
+        if isinstance(response, dict) and isinstance(response.get("json"), dict)
+        else str(response.get("content") if isinstance(response, dict) else response)
+    )
+
+
+def derive_recommendation(
+    rule_results: list[dict[str, Any]], requested_amount: float, max_amount: float
+) -> tuple[str, float | None]:
+    """Derive the credit recommendation exclusively from deterministic rule outcomes."""
+    statuses = {str(rule.get("status", "")).lower() for rule in rule_results}
+    if "refer" in statuses:
+        return "refer to human", None
+    if "fail" in statuses:
+        # A DBR failure must disclose affordability; other hard policy failures decline too.
+        return "decline", max_amount if any(
+            rule.get("rule") == "debt_burden_ratio" and rule.get("status") == "fail"
+            for rule in rule_results
+        ) else None
+    return "approve", requested_amount
+
+
+def required_approval_level(recommended_amount: float | None) -> str | None:
+    if recommended_amount is None:
+        return None
+    limit = float(os.getenv("CREDIT_OFFICER_AUTHORITY_LIMIT", "250000"))
+    return "credit_officer" if recommended_amount <= limit else "senior_credit_officer"
+
+
 def run_assessment(
     application: Mapping[str, Any],
-    policy: Mapping[str, Any] | None = None,
     *,
     llm: LLMProvider | None = None,
     store: ChromaAdapter | None = None,
     raise_on_error: bool = False,
 ) -> CreditMemo:
     """Run the 8-step application assessment pipeline and return a credit memo."""
+    steps_executed = ["validate"]
     try:
         app = load_application(application)
-        sanitized = anonymize_application(app)
+        steps_executed.append("anonymize")
+        sanitized, removed_fields = sanitize_for_llm(app)
         policy_edition = select_policy_edition(app["application_date"])
         provider = llm or create_llm_provider()
-        extraction = extract_structured_data(sanitized, llm=provider, raise_on_error=True)
+        steps_executed.append("extract")
+        extraction = extract_structured_data(
+            sanitized, llm=provider, raise_on_error=True
+        )
 
-        citations = retrieve_policy_clauses(policy_edition, store=store)
-        rule_results = evaluate_rules(app, policy_edition, citations)
+        steps_executed.append("retrieve")
+        citations = retrieve_policy_clauses(
+            policy_edition,
+            store=store or ChromaAdapter(embedding_provider=provider),
+        )
+        steps_executed.append("rules")
+        verified = dict(sanitized)
+        verified["monthly_income"] = float(
+            str(extraction.net_monthly_income.value).replace(",", "")
+        )
+        verified["other_monthly_installments"] = float(
+            str(extraction.existing_monthly_obligations.value).replace(",", "")
+        )
+        verified["bureau_score"] = int(extraction.bureau_score.value)
+        from datetime import datetime, timezone
 
-        emi = calculate_installment(app["requested_amount"], app.get("annual_rate", 12.5), app["tenure_months"])
-        dbr = calculate_dbr(emi, app.get("monthly_income", 0), app.get("other_monthly_installments", 0))
+        employment_start = None
+        for date_format in ("%Y-%m-%d", "%d %B %Y"):
+            try:
+                employment_start = (
+                    datetime.strptime(
+                        str(extraction.employment_start_date.value), date_format
+                    )
+                    .replace(tzinfo=timezone.utc)
+                    .date()
+                )
+                break
+            except ValueError:
+                pass
+        if employment_start is None:
+            raise UnverifiedExtraction("Employment start date is not a valid date")
+        verified["months_employed"] = (
+            (verified["application_date"].year - employment_start.year) * 12
+            + verified["application_date"].month
+            - employment_start.month
+        )
+        rule_results = evaluate_rules(verified, policy_edition, citations)
+        injection = re.search(
+            r"ignore (?:all |previous |prior )?instructions|approve this application",
+            "\n".join(app.get("documents", {}).values()),
+            re.IGNORECASE,
+        )
+        if injection:
+            rule_results.append(
+                {
+                    "rule": "prompt_injection_detected",
+                    "status": "refer",
+                    "citation": {"clause_id": "untrusted-document"},
+                }
+            )
+
+        steps_executed.append("calculate")
+        segment = (
+            "payroll_transfer" if app.get("salary_transferred_to_delta") else "standard"
+        )
+        annual_rate = load_annual_rate(app["tenure_months"], segment)
+        emi = calculate_installment(
+            app["requested_amount"], annual_rate, app["tenure_months"]
+        )
+        dbr = calculate_dbr(
+            emi, verified["monthly_income"], verified["other_monthly_installments"]
+        )
         max_amount = calculate_max_eligible_amount(
             emi,
-            app.get("annual_rate", 12.5),
+            annual_rate,
             app["tenure_months"],
-            monthly_income=app.get("monthly_income", 0),
-            max_dbr_percent=45 if policy_edition == "2025" else 50,
-            other_installments=app.get("other_monthly_installments", 0),
+            monthly_income=verified["monthly_income"],
+            max_dbr=load_credit_policy_limits(policy_edition)["max_dbr"],
+            other_installments=verified["other_monthly_installments"],
         )
         calculations = {
             "requested_amount": float(app["requested_amount"]),
+            "annual_rate": float(annual_rate),
             "emi": float(emi),
             "dbr": float(dbr),
             "max_amount": float(max_amount),
             "tenure_months": int(app["tenure_months"]),
-            "policy_edition": policy_edition,
+            "policy_edition": f"CP-{policy_edition}",
         }
 
-        memo_prompt = load_prompt("memo")
-        memo_prompt = memo_prompt.replace("{{requested_amount}}", str(app["requested_amount"]))
-        memo_prompt = memo_prompt.replace("{{monthly_income}}", str(app.get("monthly_income", 0)))
-        memo_prompt = memo_prompt.replace("{{emi}}", str(emi))
-        memo_prompt = memo_prompt.replace("{{dbr}}", str(dbr))
-        memo_prompt = memo_prompt.replace("{{max_amount}}", str(max_amount))
+        steps_executed.append("memo")
+        memo_text = draft_credit_memo(provider, verified, calculations, citations)
 
-        memo_response = provider.complete(memo_prompt, application=app, calculations=calculations, citations=citations)
-        memo_text = memo_response.get("content") if isinstance(memo_response, dict) else str(memo_response)
-        if isinstance(memo_response, dict) and isinstance(memo_response.get("json"), dict):
-            memo_text = json.dumps(memo_response["json"])
-
+        steps_executed.append("recommend")
+        recommendation, recommended_amount = derive_recommendation(
+            rule_results, float(app["requested_amount"]), float(max_amount)
+        )
         memo = CreditMemo(
             application_id=str(app.get("id") or app.get("application_id") or "unknown"),
             calculations=calculations,
@@ -293,18 +517,38 @@ def run_assessment(
                 "extraction": extraction.model_dump(mode="python"),
                 "rule_results": rule_results,
                 "memo": memo_text,
+                "tokens_consumed": int(getattr(provider, "tokens_consumed", 0)),
+                "token_usage": dict(getattr(provider, "token_usage", {})),
+                "steps_executed": steps_executed,
+                "removed_fields": removed_fields,
+                "injection_detected": bool(injection),
             },
-            decision="pending",
+            decision=recommendation,
+            status="pending_approval",
+            recommended_amount=recommended_amount,
+            approval_required_from=required_approval_level(recommended_amount),
         )
         return memo
-    except (InvalidLLMOutput, PolicyEditionNotFound, UnverifiedExtraction, ValueError, TypeError) as exc:
+    except (
+        InvalidLLMOutput,
+        LLMProviderError,
+        PolicyEditionNotFound,
+        PolicySourceUnavailable,
+        PricingNotFound,
+        UnverifiedExtraction,
+        ValueError,
+        TypeError,
+    ) as exc:
         if raise_on_error:
             raise
         memo = CreditMemo(
-            application_id=str(application.get("id") if isinstance(application, Mapping) else "unknown"),
+            application_id=str(
+                application.get("id") if isinstance(application, Mapping) else "unknown"
+            ),
             calculations={},
             citations=[],
-            raw_extraction={"error": str(exc)},
-            decision="Refer to human",
+            raw_extraction={"error": str(exc), "steps_executed": steps_executed},
+            decision="refer to human",
+            status="pending_approval",
         )
         return memo

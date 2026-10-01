@@ -1,4 +1,7 @@
 fastapi
 pydantic
 sqlalchemy
+alembic==1.20.0
+PyJWT==2.12.1
+python-dotenv==1.2.3
 uvicorn

@@ -53,7 +53,7 @@ def calculate_dbr(
     monthly_income: float | Decimal,
     other_installments: float | Decimal = 0.0,
 ) -> Decimal:
-    """Return the debt burden ratio as a percentage rounded half-up to 2 decimals."""
+    """Return the debt burden ratio rounded half-up to four decimal places."""
     installment = _as_decimal(monthly_installment)
     income = _as_decimal(monthly_income)
     obligations = _as_decimal(other_installments)
@@ -61,8 +61,21 @@ def calculate_dbr(
     if income <= 0:
         raise ValueError("monthly_income must be > 0")
 
-    dbr = ((installment + obligations) / income) * Decimal(100)
-    return _quantize2(dbr)
+    return calculate_exact_dbr(installment, income, obligations).quantize(
+        Decimal("0.0001"), rounding=ROUND_HALF_UP
+    )
+
+
+def calculate_exact_dbr(
+    monthly_installment: float | Decimal,
+    monthly_income: float | Decimal,
+    other_installments: float | Decimal = 0.0,
+) -> Decimal:
+    """Return DBR ratio without display rounding for eligibility checks."""
+    income = _as_decimal(monthly_income)
+    if income <= 0:
+        raise ValueError("monthly_income must be > 0")
+    return (_as_decimal(monthly_installment) + _as_decimal(other_installments)) / income
 
 
 def calculate_max_eligible_amount(
@@ -71,7 +84,7 @@ def calculate_max_eligible_amount(
     months: int,
     *,
     monthly_income: float | Decimal | None = None,
-    max_dbr_percent: float | Decimal = 50.0,
+    max_dbr: float | Decimal,
     other_installments: float | Decimal = 0.0,
 ) -> Decimal:
     """Compute the largest principal compatible with the payment or DBR limit.
@@ -86,8 +99,8 @@ def calculate_max_eligible_amount(
     if monthly_income is not None:
         income = _as_decimal(monthly_income)
         obligations = _as_decimal(other_installments)
-        dbr_limit = _as_decimal(max_dbr_percent) / Decimal(100)
-        allowable_installment = (income - obligations) * dbr_limit
+        dbr_limit = _as_decimal(max_dbr)
+        allowable_installment = (income * dbr_limit) - obligations
 
     if allowable_installment < 0:
         return Decimal(0)
@@ -99,9 +112,9 @@ def calculate_max_eligible_amount(
         principal = allowable_installment * Decimal(months)
     else:
         factor = (Decimal(1) + monthly_rate) ** months
-        principal = (
-            allowable_installment * (factor - Decimal(1))
-        ) / (monthly_rate * factor)
+        principal = (allowable_installment * (factor - Decimal(1))) / (
+            monthly_rate * factor
+        )
 
     return _floor_to_thousands(principal)
 
@@ -124,30 +137,34 @@ def age_at_maturity_check(
     return age_at_maturity <= Decimal(max_age_at_maturity)
 
 
-def evaluate_bureau_score(score: int | None, min_score: int | None = 680) -> bool:
+def evaluate_bureau_score(score: int | None, min_score: int | None) -> bool:
     """Score below threshold should not be automatically declined; it should be referred."""
-    if score is None or min_score is None:
+    if score is None:
+        return False
+    if min_score is None:
         return True
     return score >= min_score
 
 
 def employment_duration_ok(
-    months_employed: float | Decimal, minimum_months: int = 6
+    months_employed: float | Decimal, minimum_months: int | None
 ) -> bool:
     """Check the minimum employment duration requirement."""
     if months_employed is None:
         return True
-    return _as_decimal(months_employed) >= Decimal(minimum_months)
+    return minimum_months is None or _as_decimal(months_employed) >= Decimal(
+        minimum_months
+    )
 
 
 def validate_product_limits(
     loan_amount: float | Decimal,
     tenor_months: int,
     *,
-    min_amount: float | Decimal = 20000,
-    max_amount: float | Decimal = 1000000,
-    min_tenor: int = 12,
-    max_tenor: int = 60,
+    min_amount: float | Decimal,
+    max_amount: float | Decimal,
+    min_tenor: int,
+    max_tenor: int,
 ) -> bool:
     """Validate loan amount and tenor against product sheet limits."""
     amount = _as_decimal(loan_amount)
@@ -159,6 +176,7 @@ def validate_product_limits(
 __all__ = [
     "age_at_maturity_check",
     "calculate_dbr",
+    "calculate_exact_dbr",
     "calculate_installment",
     "calculate_max_eligible_amount",
     "employment_duration_ok",

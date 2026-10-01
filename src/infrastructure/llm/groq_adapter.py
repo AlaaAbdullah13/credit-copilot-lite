@@ -14,6 +14,8 @@ class GroqLLMAdapter(LLMProvider):
         self.api_key = (api_key or "").strip()
         if not self.api_key:
             raise ValueError("GROQ_API_KEY is required to use the Groq adapter.")
+        self.tokens_consumed = 0
+        self.token_usage: dict[str, int] = {}
 
     def _request_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         data = json.dumps(payload).encode("utf-8")
@@ -39,7 +41,9 @@ class GroqLLMAdapter(LLMProvider):
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0,
         }
-        response = self._request_json("https://api.groq.com/openai/v1/chat/completions", payload)
+        response = self._request_json(
+            "https://api.groq.com/openai/v1/chat/completions", payload
+        )
         content = ""
         try:
             content = response["choices"][0]["message"]["content"]
@@ -53,18 +57,30 @@ class GroqLLMAdapter(LLMProvider):
             except json.JSONDecodeError:
                 parsed = None
 
-        return {"content": content, "json": parsed}
+        provider_usage = response.get("usage") or {}
+        usage = {
+            "prompt_tokens": int(provider_usage.get("prompt_tokens", 0)),
+            "completion_tokens": int(provider_usage.get("completion_tokens", 0)),
+            "total_tokens": int(provider_usage.get("total_tokens", 0)),
+        }
+        self.token_usage = usage
+        self.tokens_consumed += usage["total_tokens"]
+        return {"content": content, "json": parsed, "usage": usage}
 
     def embed(self, text: str, **kwargs: Any) -> list[float]:
         payload = {
             "input": text,
             "model": "text-embedding-3-small",
         }
-        response = self._request_json("https://api.groq.com/openai/v1/embeddings", payload)
+        response = self._request_json(
+            "https://api.groq.com/openai/v1/embeddings", payload
+        )
         try:
             return response["data"][0]["embedding"]
         except (KeyError, IndexError, TypeError) as exc:
-            raise RuntimeError("Groq embedding response was missing vector data.") from exc
+            raise RuntimeError(
+                "Groq embedding response was missing vector data."
+            ) from exc
 
 
 GroqAdapter = GroqLLMAdapter
