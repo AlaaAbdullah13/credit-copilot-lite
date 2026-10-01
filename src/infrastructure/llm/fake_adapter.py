@@ -16,6 +16,8 @@ class FakeLLMAdapter(LLMProvider):
         self.seed = seed
         self.tokens_consumed = 0
         self.token_usage: dict[str, int] = {}
+        self.embedding_model = "fake-hash-embedding"
+        self.embedding_dimension = 256
 
     @staticmethod
     def _normalize_value(value: Any) -> Any:
@@ -46,6 +48,48 @@ class FakeLLMAdapter(LLMProvider):
         }
 
         if "extract" in lowered:
+            documents = payload.get("documents", {})
+            source_text = "\n".join(str(v) for v in documents.values())
+
+            def found(pattern, default, source):
+                match = re.search(pattern, source_text, re.IGNORECASE)
+                return (
+                    (match.group(1), match.group(0), source)
+                    if match
+                    else (default, str(default), "application-form")
+                )
+
+            income, income_quote, income_source = found(
+                r"Net monthly income\s+([\d,]+(?:\.\d+)?)",
+                payload.get("monthly_income", 15000),
+                "salary-certificate",
+            )
+            obligations, obligations_quote, obligations_source = found(
+                r"Total monthly instalments\s+EGP\s*([\d,]+(?:\.\d+)?)",
+                payload.get("other_monthly_installments", 0),
+                "credit-bureau-summary",
+            )
+            employment_match = re.search(
+                r"employed(?: by| with)?\s*(?:[^\n]*?)\s+since\s+(\d{1,2}\s+\w+\s+\d{4})",
+                source_text,
+                re.IGNORECASE,
+            )
+            employment = (
+                employment_match.group(1)
+                if employment_match
+                else payload.get("employment_start_date", "2020-01-01")
+            )
+            employment_quote = (
+                employment_match.group(0) if employment_match else str(employment)
+            )
+            employment_source = (
+                "salary-certificate" if employment_match else "application-form"
+            )
+            score, score_quote, score_source = found(
+                r"Bureau score\s+(\d+)",
+                payload.get("bureau_score", 700),
+                "credit-bureau-summary",
+            )
             extraction = {
                 "requested_amount": {
                     "value": payload.get("requested_amount", 100000),
@@ -72,28 +116,28 @@ class FakeLLMAdapter(LLMProvider):
                     "quoted_text": f"Application date: {payload.get('application_date', '2025-01-15')}",
                 },
                 "net_monthly_income": {
-                    "value": payload.get("monthly_income", 15000),
-                    "source_document": "application-form",
-                    "source_section": "income-details",
-                    "quoted_text": f"Monthly income: {payload.get('monthly_income', 15000)} EGP",
+                    "value": income,
+                    "source_document": income_source,
+                    "source_section": "salary certificate",
+                    "quoted_text": income_quote,
                 },
                 "existing_monthly_obligations": {
-                    "value": payload.get("other_monthly_installments", 0),
-                    "source_document": "application-form",
-                    "source_section": "income-details",
-                    "quoted_text": f"Obligations: {payload.get('other_monthly_installments', 0)} EGP",
+                    "value": obligations,
+                    "source_document": obligations_source,
+                    "source_section": "credit bureau summary",
+                    "quoted_text": obligations_quote,
                 },
                 "employment_start_date": {
-                    "value": payload.get("employment_start_date", "2020-01-01"),
-                    "source_document": "application-form",
-                    "source_section": "employment",
-                    "quoted_text": f"Employment start: {payload.get('employment_start_date', '2020-01-01')}",
+                    "value": employment,
+                    "source_document": employment_source,
+                    "source_section": "salary certificate",
+                    "quoted_text": employment_quote,
                 },
                 "bureau_score": {
-                    "value": payload.get("bureau_score", 700),
-                    "source_document": "application-form",
-                    "source_section": "bureau",
-                    "quoted_text": f"Bureau score: {payload.get('bureau_score', 700)}",
+                    "value": score,
+                    "source_document": score_source,
+                    "source_section": "credit bureau summary",
+                    "quoted_text": score_quote,
                 },
             }
             return {

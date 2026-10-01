@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 from typing import Any
 
+from src.domain.exceptions import LLMProviderError
 from src.infrastructure.llm.base import LLMProvider
 
 from .base import VectorStoreAdapter
@@ -21,7 +23,7 @@ except ImportError:  # pragma: no cover - fallback for local/offline use
     EmbeddingFunction = object  # type: ignore[misc,assignment]
 
 
-class _SchemaEmbeddingFunction(EmbeddingFunction[Documents]):
+class _SchemaEmbeddingFunction(EmbeddingFunction):
     """Deserialization-only embedding function required by Chroma's schema."""
 
     def __init__(self) -> None:
@@ -45,14 +47,14 @@ class _SchemaEmbeddingFunction(EmbeddingFunction[Documents]):
         return False
 
 
-class ProviderEmbeddingFunction(EmbeddingFunction[Documents]):
+class ProviderEmbeddingFunction(EmbeddingFunction):
     """Chroma embedding callback backed by the configured LLMProvider."""
 
     def __init__(self, provider: LLMProvider):
         self.provider = provider
 
     def __call__(self, input: Documents) -> Embeddings:
-        return [self.provider.embed(text) for text in input]
+        return self.provider.embed_many(list(input), task_type="RETRIEVAL_DOCUMENT")
 
     @staticmethod
     def name() -> str:
@@ -78,14 +80,19 @@ class ChromaAdapter(VectorStoreAdapter):
 
     def __init__(
         self,
-        persist_directory: str = "./data/chroma_db",
+        persist_directory: str | None = None,
         collection_name: str = "policy_documents",
         embedding_provider: LLMProvider | None = None,
     ):
-        self.persist_directory = persist_directory
+        self.persist_directory = persist_directory or os.getenv(
+            "CHROMA_DB_DIR", "./data/chroma_db"
+        )
         self.collection_name = collection_name
         self._memory_docs: list[dict[str, Any]] = []
         self._seen: set[tuple[str, str, str | None, str | None]] = set()
+        self._content_hashes: dict[str, str] = {}
+        self.last_add_counts = {"inserted": 0, "skipped": 0}
+        self.last_inserted_ids: set[str] = set()
         self._client = None
         self.collection = None
         self.backend_name = "chromadb"
@@ -96,15 +103,31 @@ class ChromaAdapter(VectorStoreAdapter):
                 "for offline tests; Chroma's downloading default is disabled."
             )
         self.embedding_provider = embedding_provider
+        self.embedding_model = str(
+            getattr(
+                embedding_provider, "embedding_model", type(embedding_provider).__name__
+            )
+        )
+        self.embedding_dimension = int(
+            getattr(embedding_provider, "embedding_dimension", 256)
+        )
+        self._collection_metadata = {
+            "hnsw:space": "cosine",
+            "embedding_model": self.embedding_model,
+            "embedding_dimension": self.embedding_dimension,
+        }
 
         if chromadb is not None:
             try:
                 self._client = chromadb.PersistentClient(path=self.persist_directory)
                 self.collection = self._client.get_or_create_collection(
                     name=self.collection_name,
-                    metadata={"hnsw:space": "cosine"},
+                    metadata=self._collection_metadata,
                     embedding_function=ProviderEmbeddingFunction(embedding_provider),
                 )
+                self._validate_collection_embedding_config()
+            except LLMProviderError:
+                raise
             except (AttributeError, TypeError, ValueError):
                 self.backend_name = "in-memory-warning"
                 logger.warning(
@@ -117,6 +140,33 @@ class ChromaAdapter(VectorStoreAdapter):
             self.backend_name = "in-memory-warning"
             logger.warning(
                 "chromadb is not installed; using non-persistent in-memory backend."
+            )
+
+    def _validate_collection_embedding_config(self) -> None:
+        """Fail before Chroma emits an opaque vector-dimension exception."""
+        metadata = dict(self.collection.metadata or {}) if self.collection else {}
+        stored_model = metadata.get("embedding_model")
+        stored_dimension = metadata.get("embedding_dimension")
+        # Collections created before embedding metadata existed are unsafe: their
+        # vector dimension cannot be reliably inferred without querying vectors.
+        if stored_model is None or stored_dimension is None:
+            if self.collection and self.collection.count() > 0:
+                raise LLMProviderError(
+                    "Existing Chroma collection has no embedding configuration. "
+                    "Delete data/chroma_db and re-ingest with the configured embedding model."
+                )
+            if self.collection:
+                self.collection.modify(metadata=self._collection_metadata)
+            return
+        if (
+            str(stored_model) != self.embedding_model
+            or int(stored_dimension) != self.embedding_dimension
+        ):
+            raise LLMProviderError(
+                "Configured embedding model/dimension does not match this Chroma collection "
+                f"(stored {stored_model!r}/{stored_dimension}, configured "
+                f"{self.embedding_model!r}/{self.embedding_dimension}). Delete "
+                "data/chroma_db and re-ingest."
             )
 
     def contains(self, doc: dict[str, Any]) -> bool:
@@ -136,9 +186,17 @@ class ChromaAdapter(VectorStoreAdapter):
         metadata = doc.get("metadata") or {}
         source = str(metadata.get("source_file") or "")
         clause = str(metadata.get("clause_id") or doc.get("id") or "")
-        text = str(doc.get("text") or "")
-        raw = f"{source}:{clause}:{text}"
+        edition = str(metadata.get("policy_edition") or "")
+        chunk_index = str(metadata.get("chunk_index") or "")
+        # IDs identify a logical chunk, not a particular revision of its text.
+        # This lets a changed chunk replace its prior embedding instead of
+        # accumulating a second record.
+        raw = f"{source}:{clause}:{edition}:{chunk_index}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+    @staticmethod
+    def _content_hash(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def _coerce_doc(self, doc: dict[str, Any]) -> dict[str, Any]:
         metadata = dict(doc.get("metadata") or {})
@@ -146,39 +204,83 @@ class ChromaAdapter(VectorStoreAdapter):
         # IDs repeat across policy editions (for example, both PDFs contain
         # ``page-2``), so derive the storage ID from source, clause, and text.
         generated_id = self._generate_id(doc)
+        text = str(doc.get("text") or "").strip()
+        metadata["content_hash"] = self._content_hash(text)
         return {
             "id": generated_id,
-            "text": str(doc.get("text") or "").strip(),
+            "text": text,
             "metadata": metadata,
         }
 
+    def _existing_content_hashes(self, ids: list[str]) -> dict[str, str]:
+        """Fetch persisted hashes before deciding which chunks need embedding."""
+        hashes = dict(self._content_hashes)
+        if self.collection is None or not ids:
+            return hashes
+        try:
+            result = self.collection.get(ids=ids, include=["metadatas", "documents"])
+            for index, stored_id in enumerate(result.get("ids") or []):
+                metadata = (result.get("metadatas") or [])[index] or {}
+                content_hash = metadata.get("content_hash")
+                if not content_hash:
+                    documents = result.get("documents") or []
+                    if index < len(documents) and documents[index] is not None:
+                        content_hash = self._content_hash(str(documents[index]))
+                if content_hash:
+                    hashes[str(stored_id)] = str(content_hash)
+        except (AttributeError, TypeError, ValueError):
+            logger.debug("Could not fetch existing Chroma chunk IDs.", exc_info=True)
+        return hashes
+
     def add_documents(self, docs: list[dict[str, Any]]) -> int:
-        inserted = 0
-        for doc in docs:
-            normalized = self._coerce_doc(doc)
+        normalized_docs = [self._coerce_doc(doc) for doc in docs]
+        existing_hashes = self._existing_content_hashes(
+            list(dict.fromkeys(doc["id"] for doc in normalized_docs if doc["text"]))
+        )
+        pending: list[dict[str, Any]] = []
+        skipped = 0
+        for normalized in normalized_docs:
             if not normalized["text"]:
                 continue
-            key = self._canonical_key(normalized)
-            if key in self._seen:
+            if (
+                existing_hashes.get(normalized["id"])
+                == normalized["metadata"]["content_hash"]
+            ):
+                skipped += 1
                 continue
+            existing_hashes[normalized["id"]] = normalized["metadata"]["content_hash"]
+            key = self._canonical_key(normalized)
             self._seen.add(key)
+            self._content_hashes[normalized["id"]] = normalized["metadata"][
+                "content_hash"
+            ]
+            self._memory_docs = [
+                doc for doc in self._memory_docs if doc["id"] != normalized["id"]
+            ]
             self._memory_docs.append(normalized)
-            inserted += 1
+            pending.append(normalized)
 
-            if self.collection is not None:
-                try:
-                    self.collection.upsert(
-                        ids=[normalized["id"]],
-                        documents=[normalized["text"]],
-                        metadatas=[normalized["metadata"]],
-                    )
-                except (AttributeError, TypeError, ValueError):
-                    logger.debug(
-                        "Chroma upsert failed; remaining in memory store.",
-                        exc_info=True,
-                    )
+        if self.collection is not None and pending:
+            try:
+                embeddings = self.embedding_provider.embed_many(
+                    [doc["text"] for doc in pending], task_type="RETRIEVAL_DOCUMENT"
+                )
+                self.collection.upsert(
+                    ids=[doc["id"] for doc in pending],
+                    documents=[doc["text"] for doc in pending],
+                    metadatas=[doc["metadata"] for doc in pending],
+                    embeddings=embeddings,
+                )
+            except LLMProviderError:
+                raise
+            except (AttributeError, TypeError, ValueError):
+                logger.debug(
+                    "Chroma upsert failed; remaining in memory store.", exc_info=True
+                )
 
-        return inserted
+        self.last_add_counts = {"inserted": len(pending), "skipped": skipped}
+        self.last_inserted_ids = {doc["id"] for doc in pending}
+        return len(pending)
 
     @staticmethod
     def _tokenize(text: str) -> set[str]:
@@ -243,8 +345,11 @@ class ChromaAdapter(VectorStoreAdapter):
         edition_values = {normalized_edition, policy_edition, None}
         if self.collection is not None:
             try:
+                query_embedding = self.embedding_provider.embed(
+                    text, task_type="RETRIEVAL_QUERY"
+                )
                 result = self.collection.query(
-                    query_texts=[text],
+                    query_embeddings=[query_embedding],
                     n_results=min(max(k, 1), 10),
                     where={"policy_edition": normalized_edition}
                     if normalized_edition
@@ -285,6 +390,8 @@ class ChromaAdapter(VectorStoreAdapter):
                             }
                         )
                     return hits[:k]
+            except LLMProviderError:
+                raise
             except (AttributeError, TypeError, ValueError):
                 logger.debug(
                     "Chroma query failed; falling back to in-memory matching.",

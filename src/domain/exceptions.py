@@ -26,10 +26,15 @@ class PolicySourceUnavailable(Exception):
     """Raised when a required policy source cannot be read at runtime."""
 
 
+class LLMProviderError(Exception):
+    """Raised when an external LLM provider cannot complete a request safely."""
+
+
 __all__ = [
     "AuthorityLimitExceeded",
     "InvalidApplication",
     "InvalidLLMOutput",
+    "LLMProviderError",
     "PolicyEditionNotFound",
     "PolicySourceUnavailable",
     "PricingNotFound",

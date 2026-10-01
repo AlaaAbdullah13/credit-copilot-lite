@@ -15,6 +15,10 @@ class LLMProvider(ABC):
     def embed(self, text: str, **kwargs: Any) -> list[float]:
         raise NotImplementedError
 
+    def embed_many(self, texts: list[str], **kwargs: Any) -> list[list[float]]:
+        """Embed a batch while retaining compatibility with single-text adapters."""
+        return [self.embed(text, **kwargs) for text in texts]
+
 
 class LLMAdapter(LLMProvider):
     """Backward-compatible alias for older imports."""
