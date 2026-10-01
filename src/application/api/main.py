@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.application.anonymizer import PROTECTED
@@ -62,6 +62,13 @@ app = FastAPI(
     title="Credit Copilot Lite",
     description="Grounded personal-loan assessment with human approval controls.",
 )
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DOCUMENTATION_FILES = {
+    "README.md": PROJECT_ROOT / "README.md",
+    "DESIGN.md": PROJECT_ROOT / "docs" / "DESIGN.md",
+    "EVALUATION.md": PROJECT_ROOT / "docs" / "EVALUATION.md",
+    "AI-USAGE-LOG.md": PROJECT_ROOT / "docs" / "AI-USAGE-LOG.md",
+}
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -193,6 +200,21 @@ def login(payload: LoginRequest):
 def health() -> dict[str, str]:
     """Lightweight container health endpoint; it intentionally has no DB side effect."""
     return {"status": "ok"}
+
+
+@app.get("/documentation", include_in_schema=False)
+def documentation_viewer() -> FileResponse:
+    """Serve the read-only engineering documentation browser."""
+    return FileResponse(STATIC_DIR / "documentation.html")
+
+
+@app.get("/documentation/content/{document_name}", include_in_schema=False)
+def documentation_content(document_name: str) -> PlainTextResponse:
+    """Return only an allow-listed Markdown document for the browser viewer."""
+    document = DOCUMENTATION_FILES.get(document_name)
+    if document is None:
+        raise HTTPException(404, "Documentation file not found")
+    return PlainTextResponse(document.read_text(encoding="utf-8"))
 
 
 @app.post("/ingest", response_model=IngestResponse)

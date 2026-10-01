@@ -1,9 +1,9 @@
-# Evaluation Results
+# Evaluation Suite and Results
 
 Run command: `LLM_PROVIDER=fake python3 -m src.cli evaluate`
 Final result: **15/15 passed**
 
-## Summary
+## Execution benchmark
 
 | Metric | Result |
 |---|---:|
