@@ -22,6 +22,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY prompts/ ./prompts/
 COPY data/ ./data/
+COPY docs/ ./docs/
+COPY README.md ./README.md
 COPY alembic/ ./alembic/
 COPY alembic.ini ./alembic.ini
 COPY .env.example ./.env.example
