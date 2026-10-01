@@ -1,6 +1,6 @@
 # Evaluation Results
 
-Run command: `LLM_PROVIDER=fake python3 src/cli/evaluate.py`
+Run command: `LLM_PROVIDER=fake python3 -m src.cli evaluate`
 Final result: **15/15 passed**
 
 ## Summary

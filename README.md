@@ -35,21 +35,14 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env          # add your API key (or set LLM_PROVIDER=fake)
 alembic upgrade head
-python3 -m src.cli.seed_users
+python3 -m src.cli seed-users
 uvicorn src.application.api.main:app --reload --port 8000
 ```
 
 Seed policy documents:
 
 ```bash
-python -c "
-import sys; sys.path.insert(0, '.')
-from src.infrastructure.ingestion.pipeline import ingest_documents
-ingest_documents(['data/policy/circular-2024-07.md', 'data/policy/credit-policy-2024.pdf'], policy_edition='2024')
-ingest_documents(['data/policy/circular-2025-02.md', 'data/policy/credit-policy-2025.pdf'], policy_edition='2025')
-ingest_documents(['data/policy/product-sheet-personal-loan.md', 'data/policy/pricing-table.csv', 'data/policy/credit-procedures-manual.pdf'], policy_edition=None)
-print('Seeding complete.')
-"
+python3 -m src.cli seed-policy
 ```
 
 ---
@@ -122,13 +115,13 @@ pytest tests/ -v
 ruff check .
 
 # Evaluation harness (15 test cases)
-LLM_PROVIDER=fake python3 src/cli/evaluate.py
+LLM_PROVIDER=fake python3 -m src.cli evaluate
 ```
 
 Expected results:
 - `pytest`: all collected tests passed
 - `ruff`: no errors
-- `evaluate.py`: 15/15 passed, 100% across all categories
+- `python -m src.cli evaluate`: 15/15 passed, 100% across all categories
 
 ---
 
@@ -141,7 +134,7 @@ testing retrieval:
 
 ```bash
 rm -rf data/chroma_db
-python3 src/cli/calibrate_retrieval.py
+python3 -m src.cli calibrate
 ```
 
 Then start the API or call `POST /ingest`; it recreates `data/chroma_db` from
@@ -153,7 +146,8 @@ Run these steps in order against a running server (`http://localhost:8000/docs` 
 **Step 1 — Ingest policy documents**
 ```bash
 docker compose run --rm seed
-# Expected: 35 chunks ingested, 0 failed
+# or locally: python3 -m src.cli seed-policy
+# Expected: chunks ingested, 0 failed
 ```
 
 **Step 2 — Login as `loan1`**

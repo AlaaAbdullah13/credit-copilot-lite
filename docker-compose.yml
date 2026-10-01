@@ -7,7 +7,7 @@ services:
       - ./data:/app/data
       - ./credit_copilot.db:/app/credit_copilot.db
     command: >
-      sh -c "alembic upgrade head && python -m src.cli.seed_users"
+      sh -c "alembic upgrade head && python -m src.cli seed-users"
 
   api:
     build: .
@@ -38,17 +38,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./credit_copilot.db:/app/credit_copilot.db
-    command: >
-      python -c "
-      import sys; sys.path.insert(0, '.');
-      from src.infrastructure.ingestion.pipeline import ingest_documents;
-      runs = [
-      (['data/policy/circular-2024-07.md', 'data/policy/credit-policy-2024.pdf'], '2024'),
-      (['data/policy/circular-2025-02.md', 'data/policy/credit-policy-2025.pdf'], '2025'),
-      (['data/policy/product-sheet-personal-loan.md', 'data/policy/pricing-table.csv', 'data/policy/credit-procedures-manual.pdf'], None),
-      ];
-      [print(ingest_documents(f, policy_edition=e)) for f, e in runs]
-      "
+    command: python -m src.cli seed-policy
     profiles:
       - seed
     depends_on:
