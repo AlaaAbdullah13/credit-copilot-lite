@@ -2,10 +2,12 @@
 
 import os
 import uuid
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.application.anonymizer import PROTECTED
 from src.application.api.schemas import (
@@ -126,12 +128,18 @@ async def named_error(_: Request, exc: Exception):
 def seed_demo_users() -> None:
     """Create or refresh the documented demo accounts from environment passwords."""
     accounts = (
-        ("loan_officer", "loan_officer", "LOAN_OFFICER_PASSWORD", 0.0),
+        ("loan1", "loan_officer", "LOAN_OFFICER_PASSWORD", 0.0),
         (
-            "credit_officer",
+            "credit1",
             "credit_officer",
             "CREDIT_OFFICER_PASSWORD",
-            float(os.getenv("CREDIT_OFFICER_AUTHORITY_LIMIT", "250000")),
+            250000.0,
+        ),
+        (
+            "senior1",
+            "credit_officer",
+            "SENIOR_CREDIT_OFFICER_PASSWORD",
+            1000000.0,
         ),
     )
     passwords = {
@@ -179,6 +187,12 @@ def login(payload: LoginRequest):
             "role": user.role,
             "username": user.username,
         }
+
+
+@app.get("/health", include_in_schema=False)
+def health() -> dict[str, str]:
+    """Lightweight container health endpoint; it intentionally has no DB side effect."""
+    return {"status": "ok"}
 
 
 @app.post("/ingest", response_model=IngestResponse)
@@ -340,3 +354,9 @@ def issue(payload: IssueRequest, _: dict = Depends(credit)):
         application.status = "issued"
         db.commit()
         return {"application_id": application.id, "status": application.status}
+
+
+# This mount intentionally comes last: API routes and OpenAPI docs must win
+# over the SPA-style static fallback.
+STATIC_DIR = Path(__file__).with_name("static")
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

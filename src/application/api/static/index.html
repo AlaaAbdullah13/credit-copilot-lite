@@ -1,357 +1,705 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Credit Copilot Lite</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DELTA Credit Copilot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            navy: "#F5F3F0",
+            surface: "#FFFFFF",
+            card: "#FFFFFF",
+            primary: "#3D3048",
+            secondary: "#766080",
+            accent: "#766080",
+            lavender: "#E9E1EC",
+            success: "#3E7C68",
+            warning: "#B98532",
+            danger: "#A6535B",
+            border: "#E4E0E5",
+            ink: "#242329",
+            muted: "#6F6B75",
+          },
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', "ui-sans-serif", "system-ui", "sans-serif"],
+          },
+          boxShadow: {
+            soft: "0 1px 3px rgba(61,48,72,0.06), 0 4px 16px rgba(61,48,72,0.04)",
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: #F5F3F0;
+      color: #242329;
+      font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    button { cursor: pointer; font: inherit; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+      outline: 2px solid #766080;
+      outline-offset: 2px;
+    }
+    ::selection { background: #E9E1EC; color: #3D3048; }
+    .hidden { display: none !important; }
+    .panel { animation: fadeIn 0.25s ease; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pulse {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      display: inline-block;
+      vertical-align: -3px;
+      animation: spin 0.7s linear infinite;
+    }
+    .skeleton {
+      height: 16px;
+      border-radius: 8px;
+      background: linear-gradient(90deg, #E9E1EC, #fff, #E9E1EC);
+      background-size: 200% 100%;
+      animation: pulse 1.2s infinite;
+    }
+    .side-link {
+      transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+    }
+    .side-link:hover { transform: translateX(2px); }
+    .card-lift {
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .card-lift:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(61,48,72,0.08);
+    }
+    .btn-primary {
+      background: #3D3048;
+      color: #fff;
+      transition: background 0.2s ease, transform 0.15s ease;
+    }
+    .btn-primary:hover:not(:disabled) { background: #4F3F5C; }
+    .btn-primary:active:not(:disabled) { transform: translateY(1px); }
+    .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+    pre.result {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #F5F3F0;
+      border: 1px solid #E4E0E5;
+      border-radius: 12px;
+      padding: 1rem;
+      font-size: 0.8rem;
+      color: #242329;
+    }
+    @media (max-width: 900px) {
+      .app-shell { display: block !important; }
+      .sidebar {
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        height: auto !important;
+        border-right: 0 !important;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+      }
+      .sidebar nav {
+        display: flex;
+        overflow-x: auto;
+        gap: 0.35rem;
+        padding-bottom: 0.25rem;
+      }
+      .side-link { white-space: nowrap; width: auto !important; }
+    }
+  </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body>
+  <div id="toasts" class="pointer-events-none fixed bottom-5 right-5 z-[100] flex w-full max-w-sm flex-col gap-2"></div>
 
-  <!-- Header -->
-  <header class="bg-blue-800 text-white px-6 py-4 flex items-center justify-between">
-    <div>
-      <h1 class="text-xl font-bold">Credit Copilot Lite</h1>
-      <p class="text-blue-200 text-sm">Delta Commercial Bank — Personal Loan Underwriting</p>
-    </div>
-    <div id="user-badge" class="hidden bg-blue-700 px-3 py-1 rounded text-sm"></div>
-  </header>
-
-  <!-- Login Screen -->
-  <div id="login-screen" class="max-w-sm mx-auto mt-20 bg-white rounded-xl shadow p-8">
-    <h2 class="text-lg font-semibold mb-6 text-gray-800">Sign In</h2>
-    <div class="space-y-4">
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
-        <input id="username" type="text" placeholder="ahmed / sara / omar"
-          class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+  <!-- LOGIN -->
+  <section id="loginView" class="grid min-h-screen place-items-center bg-navy p-5">
+    <div class="w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-soft">
+      <div class="text-center">
+        <img src="/logo.png" alt="DELTA Credit Copilot Logo" class="mx-auto h-16 w-auto rounded-xl" />
+        <h1 class="mt-4 text-2xl font-bold tracking-[0.16em] text-primary">DELTA</h1>
+        <p class="text-sm font-medium text-muted">Credit Copilot</p>
+        <p class="mt-4 text-sm italic text-muted">Smarter credit decisions. Human approved.</p>
       </div>
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Role</label>
-        <select id="role-select" class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-          <option value="loan_officer">Loan Officer</option>
-          <option value="credit_officer">Credit Officer</option>
-        </select>
+      <div class="mt-7 space-y-4">
+        <div>
+          <label class="mb-1.5 block text-xs font-semibold text-muted" for="loginUser">Username</label>
+          <input id="loginUser" class="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-ink outline-none placeholder:text-muted focus:border-accent" autocomplete="username" placeholder="e.g. loan1" />
+        </div>
+        <div>
+          <label class="mb-1.5 block text-xs font-semibold text-muted" for="loginPassword">Password</label>
+          <input id="loginPassword" type="password" class="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-ink outline-none placeholder:text-muted focus:border-accent" autocomplete="current-password" placeholder="Enter password" onkeydown="if(event.key==='Enter')login()" />
+        </div>
+        <button id="loginBtn" class="btn-primary inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold" onclick="login()">
+          Login
+        </button>
+        <p id="loginError" class="text-sm text-danger"></p>
       </div>
-      <button onclick="doLogin()"
-        class="w-full bg-blue-700 hover:bg-blue-800 text-white font-medium py-2 rounded-lg text-sm transition">
-        Sign In
-      </button>
-      <p id="login-error" class="text-red-500 text-xs hidden"></p>
+      <p class="mt-5 text-center text-xs leading-5 text-muted">
+        Role is assigned by the backend after authentication.
+      </p>
     </div>
-    <div class="mt-6 p-3 bg-gray-50 rounded text-xs text-gray-500">
-      <strong>Demo accounts:</strong><br/>
-      ahmed / loan_officer — submit &amp; query only<br/>
-      sara / credit_officer — approve up to EGP 250,000<br/>
-      omar / credit_officer — senior (raise limit in .env)
-    </div>
-  </div>
+  </section>
 
-  <!-- Main App -->
-  <div id="main-app" class="hidden max-w-4xl mx-auto px-4 py-8 space-y-6">
-
-    <!-- Tabs -->
-    <div class="flex space-x-1 bg-white rounded-xl shadow p-1">
-      <button onclick="showTab('qa')" id="tab-qa"
-        class="flex-1 py-2 rounded-lg text-sm font-medium transition tab-btn bg-blue-700 text-white">
-        Policy Q&amp;A
-      </button>
-      <button onclick="showTab('assess')" id="tab-assess"
-        class="flex-1 py-2 rounded-lg text-sm font-medium transition tab-btn text-gray-600 hover:bg-gray-100">
-        Assessment
-      </button>
-      <button onclick="showTab('approve')" id="tab-approve"
-        class="flex-1 py-2 rounded-lg text-sm font-medium transition tab-btn text-gray-600 hover:bg-gray-100">
-        Approval
-      </button>
-    </div>
-
-    <!-- Tab: Policy Q&A -->
-    <div id="tab-content-qa" class="bg-white rounded-xl shadow p-6 space-y-4">
-      <h2 class="font-semibold text-gray-800">Ask a Policy Question</h2>
-      <textarea id="qa-question" rows="3" placeholder="e.g. What is the maximum DBR under the 2025 policy?"
-        class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+  <!-- APP SHELL -->
+  <div id="dashboard" class="app-shell hidden min-h-screen bg-navy text-ink lg:flex">
+    <aside class="sidebar flex shrink-0 flex-col border-b border-white/10 bg-primary p-5 text-white lg:sticky lg:top-0 lg:h-screen lg:w-72 lg:border-b-0 lg:border-r lg:border-white/10">
       <div class="flex items-center gap-3">
-        <label class="text-sm text-gray-600">Edition:</label>
-        <select id="qa-edition" class="border rounded px-2 py-1 text-sm">
-          <option value="">Any (latest)</option>
-          <option value="2024">2024</option>
-          <option value="2025">2025</option>
-        </select>
-        <button onclick="doQuery()"
-          class="bg-blue-700 hover:bg-blue-800 text-white px-4 py-1.5 rounded-lg text-sm transition">
-          Ask
+        <img src="/logo.png" alt="DELTA Credit Copilot Logo" class="h-12 w-auto rounded-lg" />
+        <div>
+          <h1 class="text-lg font-bold tracking-[0.16em] text-white">DELTA</h1>
+          <p class="text-xs font-medium text-[#D4CBD9]">Credit Copilot</p>
+        </div>
+      </div>
+      <p class="mt-5 text-xs italic leading-5 text-[#C9BECF]">“Smarter credit decisions. Human approved.”</p>
+
+      <nav class="mt-8 grid grid-cols-2 gap-2 lg:grid-cols-1">
+        <button class="side-link active flex items-center gap-3 rounded-xl bg-[#E9E1EC]/20 px-3 py-3 text-left text-sm font-medium text-white" data-tab="ingest">Document ingestion</button>
+        <button class="side-link flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-[#C9BECF] hover:bg-white/10 hover:text-white" data-tab="qa">Policy copilot</button>
+        <button class="side-link flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-[#C9BECF] hover:bg-white/10 hover:text-white" data-tab="compare">Edition comparison</button>
+        <button class="side-link flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-[#C9BECF] hover:bg-white/10 hover:text-white" data-tab="assess">Application assessment</button>
+        <button class="side-link flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-[#C9BECF] hover:bg-white/10 hover:text-white" data-tab="injection">Injection test</button>
+        <button id="approvalNav" class="side-link flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-[#C9BECF] hover:bg-white/10 hover:text-white" data-tab="approval">Approval workflow</button>
+        <button class="side-link flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-[#C9BECF] hover:bg-white/10 hover:text-white" data-tab="evaluation">Evaluation suite</button>
+      </nav>
+
+      <div class="side-bottom mt-auto border-t border-white/10 pt-5">
+        <p class="mb-1 text-xs font-semibold tracking-wide text-[#C9BECF]">SIGNED IN</p>
+        <div class="mt-3 flex items-center gap-3">
+          <div id="avatar" class="grid h-9 w-9 place-items-center rounded-full bg-lavender font-bold text-primary">O</div>
+          <div class="min-w-0 flex-1">
+            <p id="displayUser" class="truncate text-sm font-semibold text-white"></p>
+            <p id="displayRole" class="text-xs text-[#C9BECF]"></p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onclick="logout()"
+          class="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/20"
+        >
+          Log out
         </button>
       </div>
-      <div id="qa-result" class="hidden">
-        <div id="qa-answer" class="p-4 bg-blue-50 rounded-lg text-sm text-gray-800 whitespace-pre-wrap"></div>
-        <div id="qa-citations" class="mt-2 space-y-1"></div>
-        <div id="qa-refusal" class="hidden p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800"></div>
-      </div>
-      <div id="qa-loading" class="hidden text-sm text-gray-500 animate-pulse">Searching policy documents...</div>
-    </div>
+    </aside>
 
-    <!-- Tab: Assessment -->
-    <div id="tab-content-assess" class="hidden bg-white rounded-xl shadow p-6 space-y-4">
-      <h2 class="font-semibold text-gray-800">Assess Application</h2>
-      <div class="flex items-center gap-3">
-        <label class="text-sm text-gray-600">Application:</label>
-        <select id="app-select" class="border rounded px-2 py-1 text-sm">
-          <option value="APP-001">APP-001</option>
-          <option value="APP-002">APP-002</option>
-          <option value="APP-003">APP-003 (injection test)</option>
-          <option value="APP-004">APP-004</option>
-          <option value="APP-005">APP-005</option>
-        </select>
-        <button onclick="doAssess()"
-          class="bg-blue-700 hover:bg-blue-800 text-white px-4 py-1.5 rounded-lg text-sm transition">
-          Run Assessment
-        </button>
-      </div>
-      <div id="assess-loading" class="hidden text-sm text-gray-500 animate-pulse">Running assessment pipeline...</div>
-      <div id="assess-result" class="hidden space-y-4">
-
-        <!-- Protected attributes -->
-        <div class="p-3 bg-green-50 border border-green-200 rounded-lg">
-          <p class="text-xs font-semibold text-green-700 mb-1">✅ Protected Attributes Removed</p>
-          <p id="assess-removed" class="text-xs text-green-600"></p>
+    <main class="min-w-0 flex-1 p-5 md:p-8">
+      <header class="mb-7 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p class="mb-1 text-xs font-bold tracking-[0.18em] text-secondary">CREDIT WORKSPACE</p>
+          <h2 class="text-2xl font-bold text-ink md:text-3xl">Good day, <span id="displayName">Officer</span></h2>
         </div>
-
-        <!-- Calculations -->
-        <div class="grid grid-cols-3 gap-3">
-          <div class="p-3 bg-gray-50 rounded-lg text-center">
-            <p class="text-xs text-gray-500">Monthly Instalment</p>
-            <p id="calc-emi" class="text-lg font-bold text-blue-700"></p>
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="flex items-center gap-3 rounded-full border border-border bg-white px-3 py-2 shadow-soft">
+            <span class="inline-flex h-2 w-2 rounded-full bg-success"></span>
+            <span class="text-xs font-medium text-muted">System operational</span>
           </div>
-          <div class="p-3 bg-gray-50 rounded-lg text-center">
-            <p class="text-xs text-gray-500">Debt Burden Ratio</p>
-            <p id="calc-dbr" class="text-lg font-bold text-blue-700"></p>
-          </div>
-          <div class="p-3 bg-gray-50 rounded-lg text-center">
-            <p class="text-xs text-gray-500">Max Eligible Amount</p>
-            <p id="calc-max" class="text-lg font-bold text-blue-700"></p>
-          </div>
-        </div>
-
-        <!-- Rule results -->
-        <div>
-          <p class="text-sm font-semibold text-gray-700 mb-2">Rule Results</p>
-          <div id="assess-rules" class="space-y-1"></div>
-        </div>
-
-        <!-- Recommendation -->
-        <div id="assess-recommendation" class="p-4 rounded-lg text-center font-bold text-lg"></div>
-
-        <!-- Memo -->
-        <div>
-          <p class="text-sm font-semibold text-gray-700 mb-1">Credit Memo</p>
-          <div id="assess-memo" class="p-3 bg-gray-50 rounded-lg text-sm text-gray-700 whitespace-pre-wrap"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Tab: Approval -->
-    <div id="tab-content-approve" class="hidden bg-white rounded-xl shadow p-6 space-y-4">
-      <h2 class="font-semibold text-gray-800">Approve / Reject Application</h2>
-      <div id="approve-role-warning" class="hidden p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
-        ⚠️ You are logged in as Loan Officer. Only Credit Officers can approve applications.
-      </div>
-      <div class="space-y-3">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Recommended Amount (EGP)</label>
-          <input id="approve-amount" type="number" placeholder="e.g. 300000" value="200000"
-            class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Comment</label>
-          <input id="approve-comment" type="text" placeholder="Documents verified. Approved."
-            class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-        </div>
-        <div class="flex gap-2">
-          <button onclick="doApprove()"
-            class="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-2 rounded-lg text-sm transition">
-            Approve
-          </button>
-          <button onclick="tryOverLimit()"
-            class="flex-1 bg-red-500 hover:bg-red-600 text-white font-medium py-2 rounded-lg text-sm transition">
-            Test: Approve 300,000 (over limit)
+          <button
+            type="button"
+            onclick="logout()"
+            class="inline-flex items-center justify-center rounded-xl border border-border bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-lavender"
+          >
+            Log out
           </button>
         </div>
-      </div>
-      <div id="approve-result" class="hidden p-4 rounded-lg text-sm font-medium"></div>
-    </div>
+      </header>
 
+      <section class="mb-6 rounded-2xl border border-lavender bg-lavender/40 p-6 shadow-soft">
+        <h3 class="font-semibold text-primary">Grounded lending decisions, with human control.</h3>
+        <p class="mt-2 max-w-2xl text-sm leading-6 text-ink">
+          Search approved policy sources, review deterministic calculations, and complete the approval workflow through role-based access.
+        </p>
+      </section>
+
+      <!-- INGEST -->
+      <section id="ingest" class="panel">
+        <div class="card-lift rounded-2xl border border-border bg-card p-6 shadow-soft">
+          <h3 class="text-lg font-bold text-ink">Document ingestion</h3>
+          <p class="mt-2 text-sm text-muted">Load the trusted policy corpus. Repeated runs are idempotent and report inserted versus skipped chunks.</p>
+          <button class="btn-primary mt-5 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold" onclick="ingest(this)">Ingest policy documents</button>
+          <div id="ingestResult" class="mt-5 rounded-2xl border border-dashed border-border bg-navy/60 px-5 py-8 text-center text-sm text-muted">No ingestion run yet.</div>
+        </div>
+      </section>
+
+      <!-- QA -->
+      <section id="qa" class="panel hidden">
+        <div class="card-lift max-w-4xl rounded-2xl border border-border bg-card p-6 shadow-soft">
+          <h3 class="text-lg font-bold text-ink">Policy copilot</h3>
+          <p class="mt-2 text-sm text-muted">Every answer includes policy citations. Out-of-corpus questions receive a clear refusal.</p>
+          <textarea id="question" rows="3" class="mt-4 w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-ink outline-none placeholder:text-muted focus:border-accent">What percentage of net monthly income is the maximum debt burden ratio?</textarea>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <select id="edition" class="rounded-xl border border-border bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-accent">
+              <option value="CP-2025">CP-2025</option>
+              <option value="CP-2024">CP-2024</option>
+              <option value="">Any edition</option>
+            </select>
+            <button class="btn-primary inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold" onclick="query(this)">Ask policy</button>
+          </div>
+          <div id="qaResult" class="mt-5 rounded-2xl border border-dashed border-border bg-navy/60 px-5 py-8 text-center text-sm text-muted">Ask a question to see an answer and citations.</div>
+        </div>
+      </section>
+
+      <!-- COMPARE -->
+      <section id="compare" class="panel hidden">
+        <div class="card-lift rounded-2xl border border-border bg-card p-6 shadow-soft">
+          <h3 class="text-lg font-bold text-ink">Edition comparison</h3>
+          <p class="mt-2 text-sm text-muted">Compare a policy answer under CP-2024 and CP-2025.</p>
+          <input id="compareQuestion" class="mt-4 w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-ink outline-none focus:border-accent" value="What is the maximum loan tenor permitted by the regulator?" />
+          <button class="btn-primary mt-3 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold" onclick="compare(this)">Compare editions</button>
+          <div class="mt-5 grid gap-4 md:grid-cols-2">
+            <div class="rounded-2xl border border-border bg-navy p-4">
+              <p class="text-xs font-bold tracking-wider text-secondary">CP-2024</p>
+              <div id="compare24" class="mt-3 text-sm text-muted">No result yet.</div>
+            </div>
+            <div class="rounded-2xl border border-border bg-navy p-4">
+              <p class="text-xs font-bold tracking-wider text-secondary">CP-2025</p>
+              <div id="compare25" class="mt-3 text-sm text-muted">No result yet.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ASSESS -->
+      <section id="assess" class="panel hidden">
+        <div class="card-lift rounded-2xl border border-border bg-card p-6 shadow-soft">
+          <h3 class="text-lg font-bold text-ink">Application assessment</h3>
+          <p class="mt-2 text-sm text-muted">The server loads a seeded application pack and applies quote-verified extraction, policy rules, and deterministic calculations.</p>
+          <div class="mt-4 flex flex-wrap gap-2">
+            <select id="application" class="rounded-xl border border-border bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-accent">
+              <option>APP-001</option>
+              <option>APP-002</option>
+              <option>APP-003</option>
+              <option>APP-004</option>
+              <option>APP-005</option>
+            </select>
+            <button class="btn-primary inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold" onclick="assess(this)">Assess application</button>
+          </div>
+          <div id="assessment" class="mt-5 rounded-2xl border border-dashed border-border bg-navy/60 px-5 py-8 text-center text-sm text-muted">No assessment run yet.</div>
+        </div>
+      </section>
+
+      <!-- INJECTION -->
+      <section id="injection" class="panel hidden">
+        <div class="card-lift rounded-2xl border border-border bg-card p-6 shadow-soft">
+          <span class="rounded-full bg-[#F6EFE3] px-2.5 py-1 text-xs font-semibold text-warning">Security test</span>
+          <h3 class="mt-3 text-lg font-bold text-ink">Hidden prompt injection</h3>
+          <p class="mt-2 text-sm text-muted">APP-004 includes an untrusted instruction to substitute a 200,000 EGP income and approve the loan. The system must retain the genuine 18,000 EGP evidence and refer to a human.</p>
+          <button class="btn-primary mt-5 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold" onclick="assess(this,'APP-004')">Run APP-004 security test</button>
+          <div id="injectionResult" class="mt-5 rounded-2xl border border-dashed border-border bg-navy/60 px-5 py-8 text-center text-sm text-muted">No security test run yet.</div>
+        </div>
+      </section>
+
+      <!-- APPROVAL -->
+      <section id="approval" class="panel hidden">
+        <div class="card-lift rounded-2xl border border-border bg-card p-6 shadow-soft">
+          <span class="rounded-full bg-[#E8F2EE] px-2.5 py-1 text-xs font-semibold text-success">Credit Officer action</span>
+          <h3 class="mt-3 text-lg font-bold text-ink">Approval workflow</h3>
+          <p class="mt-2 text-sm text-muted">Only Credit Officers can approve or reject. The server enforces the stored recommendation and each officer's authority limit.</p>
+          <div class="mt-4 grid gap-3 md:grid-cols-3">
+            <div class="md:col-span-1">
+              <label class="mb-1.5 block text-xs font-semibold text-muted" for="approvalApp">Application</label>
+              <input id="approvalApp" class="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-ink outline-none focus:border-accent" value="APP-001" />
+            </div>
+            <div class="md:col-span-2">
+              <label class="mb-1.5 block text-xs font-semibold text-muted" for="comment">Audit comment</label>
+              <input id="comment" class="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm text-ink outline-none focus:border-accent" value="Documents verified by credit officer." />
+            </div>
+          </div>
+          <div class="mt-4 flex flex-wrap gap-2">
+            <button class="btn-primary inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold" onclick="approve(this)">Approve</button>
+            <button class="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-white px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-lavender" onclick="reject(this)">Reject</button>
+            <button class="inline-flex items-center justify-center gap-2 rounded-xl bg-success px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#346857]" onclick="issue(this)">Issue approved offer</button>
+          </div>
+          <div id="approvalResult" class="mt-5 rounded-2xl border border-dashed border-border bg-navy/60 px-5 py-8 text-center text-sm text-muted">Assess APP-001 before starting the approval workflow.</div>
+        </div>
+      </section>
+
+      <!-- EVALUATION -->
+      <section id="evaluation" class="panel hidden">
+        <div class="card-lift rounded-2xl border border-border bg-card p-6 shadow-soft">
+          <h3 class="text-lg font-bold text-ink">Offline evaluation suite</h3>
+          <p class="mt-2 text-sm text-muted">Evaluation runs as a local Python command so it uses the fake provider and isolated vector collection; it is intentionally not exposed as an unauthenticated browser API.</p>
+          <div class="mt-5 rounded-2xl border border-dashed border-border bg-navy/60 px-6 py-10 text-center">
+            <p class="font-semibold text-ink">No live browser metrics endpoint</p>
+            <p class="mx-auto mt-2 max-w-lg text-sm leading-6 text-muted">
+              Run <code class="rounded bg-lavender px-1.5 py-0.5 text-xs text-primary">LLM_PROVIDER=fake python3 src/cli/evaluate.py</code> locally. Expected result: 15/15 passed.
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
 
-<script>
-  const API = '';
-  let currentRole = '';
-  let currentUser = '';
+  <script>
+    const KEY = "credit-copilot-session";
+    const el = (id) => document.getElementById(id);
+    const escapeHtml = (s) =>
+      String(s == null ? "" : s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    let session = null;
 
-  async function doLogin() {
-    const username = document.getElementById('username').value.trim();
-    const role = document.getElementById('role-select').value;
-    if (!username) { showError('login-error', 'Enter a username'); return; }
-
-    const res = await fetch(`${API}/login`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({username, role})
-    });
-    const data = await res.json();
-    if (!res.ok) { showError('login-error', data.detail); return; }
-
-    currentRole = data.role;
-    currentUser = data.username;
-    document.getElementById('login-screen').classList.add('hidden');
-    document.getElementById('main-app').classList.remove('hidden');
-    document.getElementById('user-badge').classList.remove('hidden');
-    document.getElementById('user-badge').textContent =
-      `${currentUser} — ${currentRole === 'credit_officer' ? 'Credit Officer' : 'Loan Officer'}`;
-
-    if (currentRole !== 'credit_officer') {
-      document.getElementById('approve-role-warning').classList.remove('hidden');
-    }
-  }
-
-  function showTab(tab) {
-    ['qa','assess','approve'].forEach(t => {
-      document.getElementById(`tab-content-${t}`).classList.add('hidden');
-      document.getElementById(`tab-${t}`).className =
-        'flex-1 py-2 rounded-lg text-sm font-medium transition tab-btn text-gray-600 hover:bg-gray-100';
-    });
-    document.getElementById(`tab-content-${tab}`).classList.remove('hidden');
-    document.getElementById(`tab-${tab}`).className =
-      'flex-1 py-2 rounded-lg text-sm font-medium transition tab-btn bg-blue-700 text-white';
-  }
-
-  async function doQuery() {
-    const question = document.getElementById('qa-question').value.trim();
-    const edition = document.getElementById('qa-edition').value || null;
-    if (!question) return;
-
-    document.getElementById('qa-result').classList.add('hidden');
-    document.getElementById('qa-loading').classList.remove('hidden');
-
-    const res = await fetch(`${API}/query`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-Role': currentRole},
-      body: JSON.stringify({question, policy_edition: edition})
-    });
-    const data = await res.json();
-    document.getElementById('qa-loading').classList.add('hidden');
-    document.getElementById('qa-result').classList.remove('hidden');
-
-    if (data.reason === 'no_chunk_above_threshold') {
-      document.getElementById('qa-answer').classList.add('hidden');
-      document.getElementById('qa-refusal').classList.remove('hidden');
-      document.getElementById('qa-refusal').textContent =
-        '⚠️ The documents do not contain enough information to answer this question.';
-      document.getElementById('qa-citations').innerHTML = '';
-    } else {
-      document.getElementById('qa-refusal').classList.add('hidden');
-      document.getElementById('qa-answer').classList.remove('hidden');
-      document.getElementById('qa-answer').textContent = data.answer || '';
-      const cits = (data.citations || []).map(c =>
-        `<div class="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
-          📄 ${c.source_file || c.source || ''} — ${c.clause_id || ''}</div>`
-      ).join('');
-      document.getElementById('qa-citations').innerHTML = cits;
-    }
-  }
-
-  async function doAssess() {
-    const appId = document.getElementById('app-select').value;
-    document.getElementById('assess-result').classList.add('hidden');
-    document.getElementById('assess-loading').classList.remove('hidden');
-
-    const res = await fetch(`${API}/assess`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-Role': currentRole},
-      body: JSON.stringify({application: {application_id: appId}})
-    });
-    const data = await res.json();
-    document.getElementById('assess-loading').classList.add('hidden');
-    document.getElementById('assess-result').classList.remove('hidden');
-
-    const removed = data.protected_attributes_removed || [];
-    document.getElementById('assess-removed').textContent =
-      removed.length ? removed.join(', ') : 'none logged';
-
-    const calc = data.calculation || {};
-    document.getElementById('calc-emi').textContent =
-      calc.monthly_instalment ? `EGP ${Number(calc.monthly_instalment).toLocaleString()}` : '—';
-    document.getElementById('calc-dbr').textContent =
-      calc.debt_burden_ratio ? `${calc.debt_burden_ratio}%` : '—';
-    document.getElementById('calc-max').textContent =
-      calc.maximum_eligible_amount ? `EGP ${Number(calc.maximum_eligible_amount).toLocaleString()}` : '—';
-
-    const rules = data.rule_results || [];
-    document.getElementById('assess-rules').innerHTML = rules.map(r => {
-      const icon = r.result === 'PASS' ? '✅' : r.result === 'FAIL' ? '❌' : '⚠️';
-      return `<div class="flex items-center gap-2 text-sm p-2 bg-gray-50 rounded">
-        <span>${icon}</span>
-        <span class="font-medium">${r.rule}</span>
-        <span class="text-gray-500 text-xs ml-auto">${r.citation || ''}</span>
-      </div>`;
-    }).join('');
-
-    const rec = data.recommendation || 'REFER_TO_HUMAN';
-    const recEl = document.getElementById('assess-recommendation');
-    if (rec === 'APPROVE') {
-      recEl.className = 'p-4 rounded-lg text-center font-bold text-lg bg-green-50 text-green-700';
-      recEl.textContent = '✅ Recommendation: APPROVE';
-    } else if (rec === 'DECLINE') {
-      recEl.className = 'p-4 rounded-lg text-center font-bold text-lg bg-red-50 text-red-700';
-      recEl.textContent = '❌ Recommendation: DECLINE';
-    } else {
-      recEl.className = 'p-4 rounded-lg text-center font-bold text-lg bg-yellow-50 text-yellow-700';
-      recEl.textContent = '⚠️ Refer to Human';
+    function toast(message, error = false) {
+      const n = document.createElement("div");
+      n.className =
+        "pointer-events-auto rounded-xl border px-4 py-3 text-sm shadow-soft " +
+        (error ? "border-[#EBD6D9] bg-[#F5E8EA] text-danger" : "border-[#D7E8E1] bg-[#E8F2EE] text-success");
+      n.innerHTML =
+        '<p class="leading-5 text-ink">' +
+        escapeHtml(message) +
+        "</p>";
+      el("toasts").append(n);
+      setTimeout(() => n.remove(), 4200);
     }
 
-    document.getElementById('assess-memo').textContent = data.memo || data.credit_memo || '';
-  }
+    function setBusy(button, on) {
+      if (!button) return;
+      button.disabled = on;
+      button.dataset.label = button.dataset.label || button.innerHTML;
+      button.innerHTML = on ? '<span class="spinner"></span> Working…' : button.dataset.label;
+    }
 
-  async function doApprove() {
-    const amount = parseFloat(document.getElementById('approve-amount').value);
-    const comment = document.getElementById('approve-comment').value;
-    await sendApproval(amount, comment);
-  }
+    function authHeaders() {
+      return {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + session.token,
+      };
+    }
 
-  async function tryOverLimit() {
-    await sendApproval(300000, 'Testing authority limit');
-  }
+    async function api(path, payload) {
+      const r = await fetch(path, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(payload || {}),
+      });
+      const d = await r.json().catch(() => ({ detail: "Invalid server response" }));
+      if (r.status === 401) {
+        logout();
+        throw Error("401 Unauthorized. Please sign in again.");
+      }
+      if (!r.ok) throw Error(r.status + " " + (d.error || d.detail || "Request failed"));
+      return d;
+    }
 
-  async function sendApproval(amount, comment) {
-    const res = await fetch(`${API}/approve`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-Role': currentRole},
-      body: JSON.stringify({amount, comment})
+    function roleLabel(role) {
+      if (role === "credit_officer") return "Credit Officer";
+      if (role === "loan_officer") return "Loan Officer";
+      return role || "—";
+    }
+
+    function renderDashboard() {
+      el("loginView").classList.add("hidden");
+      el("dashboard").classList.remove("hidden");
+      el("displayUser").textContent = session.username;
+      el("displayName").textContent = session.username;
+      el("displayRole").textContent = roleLabel(session.role);
+      el("avatar").textContent = session.username.charAt(0).toUpperCase();
+      const isCredit = session.role === "credit_officer";
+      el("approvalNav").classList.toggle("hidden", !isCredit);
+      el("approval").classList.toggle("hidden", !isCredit);
+    }
+
+    async function login() {
+      const button = el("loginBtn");
+      const user = el("loginUser").value.trim();
+      const password = el("loginPassword").value;
+      el("loginError").textContent = "";
+      setBusy(button, true);
+      try {
+        const r = await fetch("/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: user, password }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw Error(d.detail || "Login failed");
+        session = d;
+        localStorage.setItem(KEY, JSON.stringify(session));
+        renderDashboard();
+        toast("Signed in successfully.");
+      } catch (e) {
+        el("loginError").textContent = e.message;
+        toast(e.message, true);
+      } finally {
+        setBusy(button, false);
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem(KEY);
+      session = null;
+      el("dashboard").classList.add("hidden");
+      el("loginView").classList.remove("hidden");
+      toast("You have signed out.");
+    }
+
+    document.querySelectorAll(".side-link[data-tab]").forEach((b) => {
+      b.onclick = () => {
+        document.querySelectorAll(".side-link").forEach((x) => {
+          x.classList.remove("active", "bg-[#E9E1EC]/20", "text-white");
+          x.classList.add("text-[#C9BECF]");
+        });
+        b.classList.add("active", "bg-[#E9E1EC]/20", "text-white");
+        b.classList.remove("text-[#C9BECF]");
+        document.querySelectorAll(".panel").forEach((x) => x.classList.add("hidden"));
+        el(b.dataset.tab).classList.remove("hidden");
+      };
     });
-    const data = await res.json();
-    const el = document.getElementById('approve-result');
-    el.classList.remove('hidden');
-    if (res.ok) {
-      el.className = 'p-4 rounded-lg text-sm font-medium bg-green-50 text-green-700';
-      el.textContent = `✅ Approved — EGP ${amount.toLocaleString()}`;
-    } else {
-      el.className = 'p-4 rounded-lg text-sm font-medium bg-red-50 text-red-700';
-      el.textContent = `❌ ${data.detail}`;
-    }
-  }
 
-  function showError(id, msg) {
-    const el = document.getElementById(id);
-    el.textContent = msg;
-    el.classList.remove('hidden');
-  }
-
-  // Enter key on login
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !document.getElementById('login-screen').classList.contains('hidden')) {
-      doLogin();
+    function tag(status) {
+      const s = String(status || "").toLowerCase();
+      if (s === "pass" || s === "approve" || s === "approved" || s === "ok") {
+        return "rounded-full bg-[#E8F2EE] px-2.5 py-1 text-xs font-semibold text-success";
+      }
+      if (s.includes("refer") || s === "amber") {
+        return "rounded-full bg-[#F6EFE3] px-2.5 py-1 text-xs font-semibold text-warning";
+      }
+      return "rounded-full bg-[#F5E8EA] px-2.5 py-1 text-xs font-semibold text-danger";
     }
-  });
-</script>
+
+    function answerHtml(d) {
+      if (d.reason === "no_chunk_above_threshold") {
+        return (
+          '<div class="rounded-xl border border-warning/40 bg-[#F6EFE3]/50 p-4 text-left">' +
+          '<p class="font-semibold text-ink">Out-of-corpus refusal</p>' +
+          '<p class="mt-2 text-sm text-muted">' +
+          escapeHtml(d.answer) +
+          "</p>" +
+          '<p class="mt-2 text-xs text-warning">Reason: ' +
+          escapeHtml(d.reason) +
+          "</p></div>"
+        );
+      }
+      return (
+        '<div class="rounded-xl border border-border bg-white p-4 text-left text-sm leading-7 text-ink">' +
+        escapeHtml(d.answer) +
+        '</div><div class="mt-3 flex flex-wrap gap-2">' +
+        (d.citations || [])
+          .map(
+            (c) =>
+              '<span class="rounded-lg bg-lavender px-3 py-2 text-xs font-bold text-primary">' +
+              escapeHtml(c.source_file) +
+              " · " +
+              escapeHtml(c.clause_id) +
+              "</span>"
+          )
+          .join("") +
+        "</div>"
+      );
+    }
+
+    async function ingest(button) {
+      setBusy(button, true);
+      try {
+        const d = await api("/ingest");
+        el("ingestResult").innerHTML =
+          '<div class="text-left"><span class="' +
+          tag("ok") +
+          '">Ingestion complete</span><pre class="result mt-3 mb-0">' +
+          escapeHtml(JSON.stringify(d, null, 2)) +
+          "</pre></div>";
+        toast("Policy documents ingested.");
+      } catch (e) {
+        el("ingestResult").innerHTML =
+          '<div class="text-left"><span class="' +
+          tag("fail") +
+          '">Request failed</span><p class="mt-3 mb-0 text-sm text-ink">' +
+          escapeHtml(e.message) +
+          "</p></div>";
+        toast(e.message, true);
+      } finally {
+        setBusy(button, false);
+      }
+    }
+
+    async function query(button) {
+      setBusy(button, true);
+      try {
+        el("qaResult").innerHTML = '<div class="skeleton w-full"></div>';
+        const d = await api("/query", {
+          question: el("question").value,
+          policy_edition: el("edition").value || null,
+        });
+        el("qaResult").innerHTML = answerHtml(d);
+        toast(d.reason === "ok" ? "Policy answer retrieved." : "Policy refusal returned.");
+      } catch (e) {
+        el("qaResult").textContent = e.message;
+        toast(e.message, true);
+      } finally {
+        setBusy(button, false);
+      }
+    }
+
+    async function compare(button) {
+      setBusy(button, true);
+      try {
+        for (const [edition, target] of [
+          ["CP-2024", "compare24"],
+          ["CP-2025", "compare25"],
+        ]) {
+          el(target).innerHTML = '<div class="skeleton"></div>';
+          const d = await api("/query", {
+            question: el("compareQuestion").value,
+            policy_edition: edition,
+          });
+          el(target).innerHTML = answerHtml(d);
+        }
+        toast("Edition comparison completed.");
+      } catch (e) {
+        toast(e.message, true);
+      } finally {
+        setBusy(button, false);
+      }
+    }
+
+    function assessmentHtml(d) {
+      const c = d.calculations || {};
+      const rules = (d.raw_extraction && d.raw_extraction.rule_results) || [];
+      const statusClass = tag(d.decision);
+      return (
+        '<div class="grid gap-3 text-left sm:grid-cols-3">' +
+        '<div class="rounded-xl border border-border bg-white p-4"><p class="text-xs text-muted">INSTALLMENT</p><b class="mt-1 block text-xl text-ink">EGP ' +
+        escapeHtml(c.emi) +
+        "</b></div>" +
+        '<div class="rounded-xl border border-border bg-white p-4"><p class="text-xs text-muted">DEBT BURDEN RATIO</p><b class="mt-1 block text-xl text-ink">' +
+        escapeHtml(c.dbr) +
+        "%</b></div>" +
+        '<div class="rounded-xl border border-border bg-white p-4"><p class="text-xs text-muted">MAXIMUM AMOUNT</p><b class="mt-1 block text-xl text-ink">EGP ' +
+        escapeHtml(c.max_amount) +
+        "</b></div></div>" +
+        '<p class="mt-4 text-left"><span class="' +
+        statusClass +
+        '">' +
+        escapeHtml(d.decision) +
+        '</span> <span class="ml-2 text-sm text-muted">' +
+        escapeHtml(d.status) +
+        "</span></p>" +
+        '<div class="mt-4 text-left">' +
+        (rules.length
+          ? rules
+              .map(
+                (r) =>
+                  '<div class="flex items-center justify-between border-b border-border py-2.5 text-sm"><b class="capitalize text-ink">' +
+                  escapeHtml(String(r.rule || "").replace(/_/g, " ")) +
+                  '</b><span class="' +
+                  tag(r.status) +
+                  '">' +
+                  escapeHtml(r.status) +
+                  "</span></div>"
+              )
+              .join("")
+          : '<div class="rounded-xl border border-dashed border-border p-4 text-center text-sm text-muted">No rule results returned.</div>') +
+        "</div>"
+      );
+    }
+
+    async function assess(button, forced) {
+      setBusy(button, true);
+      const target = forced ? "injectionResult" : "assessment";
+      try {
+        el(target).innerHTML = '<div class="skeleton"></div>';
+        const id = forced || el("application").value;
+        const d = await api("/assess", { application_id: id });
+        el(target).innerHTML = assessmentHtml(d);
+        el("approvalApp").value = id;
+        toast("Assessment completed: " + d.decision);
+      } catch (e) {
+        el(target).textContent = e.message;
+        toast(e.message, true);
+      } finally {
+        setBusy(button, false);
+      }
+    }
+
+    async function approve(button) {
+      setBusy(button, true);
+      try {
+        const d = await api("/approve", {
+          application_id: el("approvalApp").value,
+          comment: el("comment").value,
+        });
+        el("approvalResult").innerHTML =
+          '<div class="text-left"><span class="' +
+          tag("approved") +
+          '">Approved</span><pre class="result mt-3">' +
+          escapeHtml(JSON.stringify(d, null, 2)) +
+          "</pre></div>";
+        toast("Application approved.");
+      } catch (e) {
+        el("approvalResult").innerHTML =
+          '<div class="text-left"><span class="' +
+          tag("fail") +
+          '">Approval blocked</span><p class="mt-3 text-sm text-ink">' +
+          escapeHtml(e.message) +
+          "</p></div>";
+        toast(e.message, true);
+      } finally {
+        setBusy(button, false);
+      }
+    }
+
+    async function reject(button) {
+      setBusy(button, true);
+      try {
+        const d = await api("/reject", {
+          application_id: el("approvalApp").value,
+          comment: el("comment").value,
+        });
+        el("approvalResult").innerHTML =
+          '<div class="text-left"><span class="' +
+          tag("fail") +
+          '">Rejected</span><pre class="result mt-3">' +
+          escapeHtml(JSON.stringify(d, null, 2)) +
+          "</pre></div>";
+        toast("Application rejected.");
+      } catch (e) {
+        toast(e.message, true);
+      } finally {
+        setBusy(button, false);
+      }
+    }
+
+    async function issue(button) {
+      setBusy(button, true);
+      try {
+        const d = await api("/issue", { application_id: el("approvalApp").value });
+        el("approvalResult").innerHTML =
+          '<div class="text-left"><span class="' +
+          tag("ok") +
+          '">Issued</span><pre class="result mt-3">' +
+          escapeHtml(JSON.stringify(d, null, 2)) +
+          "</pre></div>";
+        toast("Approved application issued.");
+      } catch (e) {
+        toast(e.message, true);
+      } finally {
+        setBusy(button, false);
+      }
+    }
+
+    try {
+      session = JSON.parse(localStorage.getItem(KEY) || "null");
+      if (session && session.token) renderDashboard();
+    } catch (_) {
+      localStorage.removeItem(KEY);
+    }
+  </script>
 </body>
 </html>
