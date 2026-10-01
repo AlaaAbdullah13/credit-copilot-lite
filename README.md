@@ -128,6 +128,20 @@ Expected results:
 
 ## 5-Minute Demo Path
 
+### Rebuild policy retrieval data
+
+Policy PDF table chunking changed. Rebuild the persisted collection before
+testing retrieval:
+
+```bash
+rm -rf data/chroma_db
+python3 src/cli/calibrate_retrieval.py
+```
+
+Then start the API or call `POST /ingest`; it recreates `data/chroma_db` from
+the policy sources. The calibration command prints the chosen threshold and
+the reusable evaluation rows from `data/eval/retrieval_questions.json`.
+
 Run these steps in order against a running server (`http://localhost:8000/docs` for Swagger UI).
 
 **Step 1 — Ingest policy documents**
